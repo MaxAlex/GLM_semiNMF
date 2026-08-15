@@ -23,6 +23,10 @@ import torch.nn.functional as tf
 from ._dispersion import dispersion_from_moments
 from ._likelihood import ETA_CLAMP, nb_deviance, nb_nll, softplus_inv, st_clamp
 
+# Separation backstop (spec 5.2): a factor's contribution to the linear
+# predictor is hard-clipped at |F_fk| * max_s G_sk <= F_CLIP (log-fold change
+# at maximal activity). F columns are kept unit-L2 by rescaling, so a bound on
+# raw |F| would be unreachable; the contribution bound is scale-invariant.
 F_CLIP = 15.0
 # Auto-chunking: ~this many matrix elements per streamed chunk (float32:
 # ~128 MB forward, a few x that with autograd buffers).
@@ -102,6 +106,12 @@ class FitState:
 @dataclass
 class FitConfig:
     lam: float = 0.0
+    # Small L1 on G (sum of usages). eta is invariant under G_k -> G_k + c
+    # with a -> a - c F_k, so the likelihood alone leaves each usage column's
+    # baseline free; this penalty smoothly selects the touch-zero
+    # representative, keeps the orthant constraint active, and measurably
+    # improves factor recovery. Scaled ~ p by the caller.
+    lam_G: float = 0.0
     max_iter: int = 500
     tol: float = 1e-5
     algorithm: str = "adam"  # "adam" | "lbfgs" | "adam_joint"
@@ -122,7 +132,7 @@ def _set_active(active: list[torch.Tensor], all_params: list[torch.Tensor]) -> N
         prm.requires_grad_(any(prm is x for x in active))
 
 
-def full_objective(state: FitState, data: DataSource, lam: float) -> float:
+def full_objective(state: FitState, data: DataSource, lam: float, lam_G: float = 0.0) -> float:
     """Penalized objective with the full NLL (lgamma terms included)."""
     total = 0.0
     with torch.no_grad():
@@ -130,7 +140,10 @@ def full_objective(state: FitState, data: DataSource, lam: float) -> float:
             total += nb_nll(x, state.eta(s, e, z), state.log_theta.unsqueeze(1), full=True).sum(
                 dtype=torch.float64
             ).item()
-    return total + lam * state.F.abs().sum(dtype=torch.float64).item()
+        total += lam * state.F.abs().sum(dtype=torch.float64).item()
+        if lam_G > 0 and state.F.shape[1] > 0:
+            total += lam_G * state.G(slice(None)).sum(dtype=torch.float64).item()
+    return total
 
 
 def total_deviance(state: FitState, data: DataSource, drop_factor: int | None = None) -> float:
@@ -165,15 +178,26 @@ def refresh_dispersion(state: FitState, data: DataSource, mode: str | float) -> 
         state.log_theta.copy_(dispersion_from_moments(ssr, s_mu, s_mu2, mode))
 
 
-def _accumulate_grads(state: FitState, data: DataSource) -> None:
+def _accumulate_grads(state: FitState, data: DataSource, lam_G: float = 0.0) -> None:
+    g_active = lam_G > 0 and state.F.shape[1] > 0 and state.G_raw.requires_grad
     for s, e, x, z in data:
         loss = nb_nll(x, state.eta(s, e, z), state.log_theta.unsqueeze(1)).sum()
+        if g_active:
+            loss = loss + lam_G * state.G(slice(s, e)).sum()
         loss.backward()
+
+
+def _clip_bound(state: FitState) -> torch.Tensor:
+    """Per-column bound on |F| so that |F_fk| * max_s G_sk <= F_CLIP."""
+    if state.G_raw.shape[1] == 0:
+        return torch.ones(0, dtype=state.F.dtype, device=state.F.device)
+    gmax = state.G().max(dim=0).values.clamp(min=1e-12)
+    return F_CLIP / gmax
 
 
 def _prox_and_clip_F(state: FitState, opt: torch.optim.Adam | None, cfg: FitConfig) -> None:
     """Soft-threshold F by the L1 prox (scaled by Adam's per-coordinate
-    effective step when available) and apply the separation hard clip."""
+    effective step when available) and apply the separation contribution clip."""
     with torch.no_grad():
         if cfg.lam > 0:
             thr = None
@@ -183,11 +207,18 @@ def _prox_and_clip_F(state: FitState, opt: torch.optim.Adam | None, cfg: FitConf
                     step = stt["step"]
                     step = step.item() if torch.is_tensor(step) else step
                     v_hat = stt["exp_avg_sq"] / (1.0 - 0.999**step)
-                    thr = cfg.lr_F * cfg.lam / (v_hat.sqrt() + 1e-8)
+                    denom = v_hat.sqrt() + 1e-8
+                    # Floor at a fraction of the median: coordinates whose
+                    # gradients vanish (weak factors) would otherwise get an
+                    # exploding threshold that wipes the column and
+                    # destabilizes the fit.
+                    denom = torch.maximum(denom, 0.1 * denom.median())
+                    thr = cfg.lr_F * cfg.lam / denom
             if thr is None:
                 thr = cfg.lr_F * cfg.lam
             state.F.copy_(torch.sign(state.F) * (state.F.abs() - thr).clamp(min=0.0))
-        state.F.clamp_(-F_CLIP, F_CLIP)
+        bound = _clip_bound(state).unsqueeze(0)
+        state.F.copy_(state.F.clamp(-bound, bound))
 
 
 def _project_G(state: FitState) -> None:
@@ -197,11 +228,25 @@ def _project_G(state: FitState) -> None:
 
 
 def rescale_columns(state: FitState) -> None:
-    """Fix the scale ambiguity: unit-L2 columns of F, scale pushed into G.
-    Must run before the convergence check (spec section 3)."""
+    """Canonicalize the per-factor ambiguities the likelihood cannot see.
+    Must run before the convergence check (spec section 3).
+
+    1. Shift: eta is invariant under ``G_k -> G_k + c, a -> a - c F_k``, so
+       each usage column is pulled down to touch zero (offset pushed into
+       ``a``). Without this the orthant constraint never binds — fitted G goes
+       dense and rotational ambiguity partially returns, which measurably
+       degrades factor recovery.
+    2. Scale: unit-L2 columns of F, scale pushed into G.
+    """
     if state.F.shape[1] == 0:
         return
     with torch.no_grad():
+        G = state.G(slice(None))
+        m = G.min(dim=0).values
+        if (m > 1e-8).any():
+            state.a.add_(state.F @ m)
+            G = (G - m).clamp(min=1e-12)
+            state.G_raw.copy_(softplus_inv(G) if state.g_param == "softplus" else G)
         norms = state.F.norm(dim=0)
         c = torch.where(norms > 1e-12, norms, torch.ones_like(norms))
         state.F.div_(c)
@@ -225,6 +270,8 @@ def _lbfgs_block(params: list[torch.Tensor], state: FitState, data: DataSource, 
             if is_F and cfg.lam > 0:
                 # smooth |F| surrogate; the outer prox/clip still runs after
                 loss = loss + cfg.lam * torch.sqrt(state.F**2 + 1e-8).sum()
+            if not is_F and cfg.lam_G > 0 and state.F.shape[1] > 0:
+                loss = loss + cfg.lam_G * state.G(slice(s, e)).sum()
             loss.backward()
             total += float(loss)
         return total
@@ -260,7 +307,7 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
             _set_active(params_F + params_G, all_params)
             for _ in range(2 * cfg.inner_steps):
                 opt_J.zero_grad(set_to_none=True)
-                _accumulate_grads(state, data)
+                _accumulate_grads(state, data, cfg.lam_G)
                 opt_J.step()
                 _prox_and_clip_F(state, opt_J, cfg)
                 _project_G(state)
@@ -277,7 +324,7 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
                 _set_active(params_G, all_params)
                 for _ in range(cfg.inner_steps):
                     opt_G.zero_grad(set_to_none=True)
-                    _accumulate_grads(state, data)
+                    _accumulate_grads(state, data, cfg.lam_G)
                     opt_G.step()
                     _project_G(state)
             _set_active(params_F, all_params)
@@ -293,7 +340,7 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
         if theta_active and (it + 1) % cfg.theta_every == 0:
             refresh_dispersion(state, data, cfg.dispersion_mode)
 
-        loss = full_objective(state, data, cfg.lam)
+        loss = full_objective(state, data, cfg.lam, cfg.lam_G)
         losses.append(loss)
         if cfg.verbose and (it % 10 == 0 or it == cfg.max_iter - 1):
             print(f"[glm_seminmf] iter {it:4d}  loss {loss:.6e}")
@@ -328,7 +375,11 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
         prev = loss
 
     _set_active([], all_params)
-    clip_hit = bool((state.F.abs() >= F_CLIP - 1e-6).any().item()) if have_k else False
+    clip_hit = False
+    if have_k:
+        with torch.no_grad():
+            bound = _clip_bound(state).unsqueeze(0)
+            clip_hit = bool((state.F.abs() >= bound * (1.0 - 1e-5)).any().item())
     return losses, len(losses), converged, clip_hit
 
 
@@ -347,10 +398,10 @@ def run_transform(state: FitState, data: DataSource, cfg: FitConfig):
     for it in range(cfg.max_iter):
         for _ in range(cfg.inner_steps):
             opt_G.zero_grad(set_to_none=True)
-            _accumulate_grads(state, data)
+            _accumulate_grads(state, data, cfg.lam_G)
             opt_G.step()
             _project_G(state)
-        loss = full_objective(state, data, 0.0)
+        loss = full_objective(state, data, 0.0, cfg.lam_G)
         losses.append(loss)
         if prev is not None:
             rel = abs(prev - loss) / (abs(prev) + 1e-12)

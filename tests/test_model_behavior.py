@@ -93,7 +93,9 @@ def test_separation_bounded_and_warns():
         warnings.simplefilter("always")
         m = quick_model(3, l1_F=0.0, max_iter=300).fit(X)
     assert np.isfinite(m.F_).all()
-    assert np.abs(m.F_).max() <= 15.0 + 1e-9
+    # the factor contribution to the log-mean is bounded by the clip
+    contrib = np.abs(m.F_) * m.G_.max(axis=0, initial=0.0)[None, :]
+    assert contrib.max() <= 15.0 * (1 + 1e-4), contrib.max()
     messages = [str(w.message) for w in caught]
     assert any("clip" in msg for msg in messages), messages
 

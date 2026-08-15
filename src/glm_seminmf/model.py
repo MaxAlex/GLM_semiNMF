@@ -57,6 +57,15 @@ class NBGLMSemiNMF:
         Not optional in spirit: it controls separation divergence and
         strengthens identifiability; ``0.0`` is accepted but will warn if any
         loading hits the internal hard clip.
+    l1_G : float or "auto", default "auto"
+        Small L1 penalty on usages (sum of G). The linear predictor is
+        invariant under ``G_k -> G_k + c`` with ``a -> a - c F_k``, so the
+        likelihood alone leaves each usage column's baseline unidentified;
+        this penalty smoothly anchors columns at the touch-zero
+        representative, which keeps the ``G >= 0`` constraint active and
+        measurably improves factor recovery and restart stability.
+        ``"auto"`` uses ``0.005 * p``. Set 0.0 to disable (identifiability
+        then rests on the orthant constraint alone).
     exposure : {"offset", "fit"} or ndarray of shape (n,), default "offset"
         ``"offset"``: fixed per-sample ``b_s = log(total_s / median total)``
         (the stable default). ``"fit"``: estimate ``b`` jointly — can absorb
@@ -107,6 +116,7 @@ class NBGLMSemiNMF:
         self,
         n_components: int,
         l1_F: float = 0.0,
+        l1_G: float | str = "auto",
         exposure: str | np.ndarray = "offset",
         dispersion: str | float = "trend",
         init: str | tuple = "svd",
@@ -125,6 +135,7 @@ class NBGLMSemiNMF:
     ):
         self.n_components = n_components
         self.l1_F = l1_F
+        self.l1_G = l1_G
         self.exposure = exposure
         self.dispersion = dispersion
         self.init = init
@@ -150,9 +161,15 @@ class NBGLMSemiNMF:
     def _torch_dtype(self) -> torch.dtype:
         return {"float32": torch.float32, "float64": torch.float64}[self.dtype]
 
-    def _cfg(self) -> FitConfig:
+    def _resolved_l1_G(self, p: int) -> float:
+        if self.l1_G == "auto":
+            return 0.005 * p
+        return float(self.l1_G)
+
+    def _cfg(self, p: int) -> FitConfig:
         return FitConfig(
             lam=self.l1_F,
+            lam_G=self._resolved_l1_G(p),
             max_iter=self.max_iter,
             tol=self.tol,
             algorithm=self.algorithm,
@@ -207,7 +224,7 @@ class NBGLMSemiNMF:
         rescale_columns(state)
         data = DataSource(X, Znp, device, dtype, self.batch_size)
 
-        cfg = self._cfg()
+        cfg = self._cfg(p)
         losses, n_iter, converged, clip_hit = run_fit(state, data, cfg)
 
         self.loss_ = np.asarray(losses)
@@ -222,9 +239,10 @@ class NBGLMSemiNMF:
             )
         if clip_hit:
             warnings.warn(
-                f"some loadings sit at the hard clip |F|={F_CLIP}; this indicates "
-                "likelihood divergence under separation — increase l1_F rather "
-                "than relying on the clip",
+                "some loadings sit at the separation hard clip (factor "
+                f"contribution to the log-mean bounded at {F_CLIP}); this "
+                "indicates likelihood divergence under separation — increase "
+                "l1_F rather than relying on the clip",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -335,7 +353,7 @@ class NBGLMSemiNMF:
             b_trainable=state.b_trainable,
             g_param=state.g_param,
         )
-        cfg = self._cfg()
+        cfg = self._cfg(p)
         cfg.max_iter = 150
         cfg.update_theta = False
         cfg.lam = 0.0
@@ -385,7 +403,7 @@ class NBGLMSemiNMF:
         )
         data = DataSource(X, Znp, device, dtype, self.batch_size)
         self._warm_start_G(state, data)
-        cfg = self._cfg()
+        cfg = self._cfg(p)
         cfg.update_theta = False
         # G-only optimization tolerates (and needs) a bolder step size than the
         # alternating fit: it converges slowly but stably at the fit-time lr.

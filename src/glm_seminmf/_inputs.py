@@ -48,7 +48,9 @@ def validate_X(X) -> tuple[sp.csc_matrix | np.ndarray, int, int]:
         raise ValueError("X must contain non-negative counts")
     p, n = X.shape
     if sp.issparse(X) and p * n <= _DENSIFY_ELEMENTS:
-        X = X.toarray()
+        # C order: CSC.toarray() yields F-order, whose different BLAS
+        # accumulation order would break bitwise sparse/dense agreement.
+        X = np.ascontiguousarray(X.toarray())
     return X, p, n
 
 

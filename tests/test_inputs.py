@@ -31,11 +31,24 @@ def test_accepts_integer_valued_floats():
     validate_X(X)  # whole-valued floats are integer counts
 
 
-def test_sparse_converted_to_csc():
+def test_small_sparse_densified():
     X = sp.random(20, 15, density=0.3, random_state=0, format="csr")
     X.data = np.round(X.data * 10)
     out, p, n = validate_X(X)
-    assert sp.issparse(out) and out.format == "csc" and (p, n) == (20, 15)
+    # small sparse inputs are densified (single code path => bitwise
+    # agreement with dense); large ones stay CSC — see _DENSIFY_ELEMENTS
+    assert isinstance(out, np.ndarray) and out.flags["C_CONTIGUOUS"]
+    assert (p, n) == (20, 15)
+
+
+def test_large_sparse_stays_csc(monkeypatch):
+    import glm_seminmf._inputs as inputs
+
+    monkeypatch.setattr(inputs, "_DENSIFY_ELEMENTS", 0)
+    X = sp.random(20, 15, density=0.3, random_state=0, format="csr")
+    X.data = np.round(X.data * 10)
+    out, _, _ = validate_X(X)
+    assert sp.issparse(out) and out.format == "csc"
 
 
 def test_encode_Z_dataframe_one_hot():

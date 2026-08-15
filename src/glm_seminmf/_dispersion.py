@@ -61,7 +61,11 @@ def dispersion_from_moments(
     resp = log_alpha.clamp(lo, hi)
     m = log_mean - log_mean.mean()
     design = torch.stack([torch.ones_like(m), m, m * m], dim=1)
-    coef = torch.linalg.lstsq(design, resp.unsqueeze(1)).solution.squeeze(1)
+    # Normal equations on the tiny 3x3 system; torch.linalg.lstsq is avoided
+    # because its first call in a process can differ bitwise from later calls,
+    # breaking seed reproducibility (spec 5.4).
+    ata = design.T @ design + 1e-10 * torch.eye(3, dtype=design.dtype, device=design.device)
+    coef = torch.linalg.solve(ata, design.T @ resp)
     trend = design @ coef
 
     w = s_mu / (s_mu + _SHRINK_COUNTS)  # information-based shrink weight
