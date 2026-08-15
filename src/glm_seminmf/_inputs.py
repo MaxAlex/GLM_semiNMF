@@ -11,9 +11,16 @@ from __future__ import annotations
 import numpy as np
 import scipy.sparse as sp
 
+# Sparse inputs at most this many elements are densified up front: the fitting
+# engine would hold them dense on the device anyway, and a single code path
+# makes sparse and dense inputs bitwise identical (spec test 11). Larger
+# sparse inputs stay sparse and may differ from dense in the last float digits.
+_DENSIFY_ELEMENTS = 50_000_000
+
 
 def validate_X(X) -> tuple[sp.csc_matrix | np.ndarray, int, int]:
-    """Validate counts and return ``(X, p, n)`` with sparse input as CSC.
+    """Validate counts and return ``(X, p, n)`` with sparse input as CSC
+    (small sparse inputs are densified — see ``_DENSIFY_ELEMENTS``).
 
     CSC because fitting streams over contiguous sample (column) chunks.
     Raises on non-integer or negative values instead of silently rounding.
@@ -40,6 +47,8 @@ def validate_X(X) -> tuple[sp.csc_matrix | np.ndarray, int, int]:
     if data.size and data.min() < 0:
         raise ValueError("X must contain non-negative counts")
     p, n = X.shape
+    if sp.issparse(X) and p * n <= _DENSIFY_ELEMENTS:
+        X = X.toarray()
     return X, p, n
 
 

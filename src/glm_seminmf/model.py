@@ -201,9 +201,9 @@ class NBGLMSemiNMF:
             torch.manual_seed(self.random_state)
 
         b0, b_trainable = self._exposure_b(X, n)
-        F0, G0, a0 = initialize(X, b0, k, self.init, self.random_state)
+        F0, G0, a0, gamma0 = initialize(X, b0, k, self.init, self.random_state, Znp)
 
-        state = self._build_state(F0, G0, a0, b0, Znp, p, n, k, b_trainable, device, dtype)
+        state = self._build_state(F0, G0, a0, b0, gamma0, Znp, p, n, k, b_trainable, device, dtype)
         rescale_columns(state)
         data = DataSource(X, Znp, device, dtype, self.batch_size)
 
@@ -232,7 +232,7 @@ class NBGLMSemiNMF:
         self._finalize(state, data)
         return self
 
-    def _build_state(self, F0, G0, a0, b0, Znp, p, n, k, b_trainable, device, dtype) -> FitState:
+    def _build_state(self, F0, G0, a0, b0, gamma0, Znp, p, n, k, b_trainable, device, dtype) -> FitState:
         as_t = lambda arr: torch.as_tensor(np.asarray(arr, dtype=np.float64), device=device, dtype=dtype)
         G0t = as_t(G0)
         if self.g_parametrization == "softplus":
@@ -246,7 +246,9 @@ class NBGLMSemiNMF:
             G_raw=G_raw.contiguous(),
             a=as_t(a0),
             b=as_t(b0),
-            gamma=None if Znp is None else torch.zeros(p, Znp.shape[1], device=device, dtype=dtype),
+            gamma=None
+            if Znp is None
+            else (torch.zeros(p, Znp.shape[1], device=device, dtype=dtype) if gamma0 is None else as_t(gamma0)),
             log_theta=torch.zeros(p, device=device, dtype=dtype),
             b_trainable=b_trainable,
             g_param=self.g_parametrization,
