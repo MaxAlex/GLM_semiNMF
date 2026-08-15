@@ -47,7 +47,7 @@ def match_mean_abs_corr(F1, F2) -> float:
     from scipy.optimize import linear_sum_assignment
 
     k = F1.shape[1]
-    C = np.corrcoef(F1.T, F2.T)[:k, k:]
+    C = np.nan_to_num(np.corrcoef(F1.T, F2.T)[:k, k:])  # zero-variance col -> 0
     r, c = linear_sum_assignment(-np.abs(C))
     return float(np.abs(C[r, c]).mean())
 

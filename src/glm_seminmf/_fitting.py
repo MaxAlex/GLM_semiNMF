@@ -290,10 +290,17 @@ def _lbfgs_block(params: list[torch.Tensor], state: FitState, data: DataSource, 
             if not is_F and cfg.lam_G > 0 and state.F.shape[1] > 0:
                 loss = loss + cfg.lam_G * state.G(slice(s, e)).sum()
             loss.backward()
-            total += float(loss)
+            total += loss.detach().item()
         return total
 
+    saved = [prm.detach().clone() for prm in params]
     opt.step(closure)
+    # Strong-Wolfe line search can step to non-finite territory on this
+    # objective; revert the block update rather than poisoning the state.
+    with torch.no_grad():
+        if any(not torch.isfinite(prm).all() for prm in params):
+            for prm, old in zip(params, saved):
+                prm.copy_(old)
 
 
 def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
