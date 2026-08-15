@@ -1,0 +1,11 @@
+{
+  "device": "cpu",
+  "cuda": false,
+  "quick": true,
+  "exposure": {
+    "recovery_offset": 0.943,
+    "recovery_fit": 0.939,
+    "cross_agreement": 0.967,
+    "b_agreement": 0.76
+  }
+}
