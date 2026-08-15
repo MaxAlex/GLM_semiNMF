@@ -7,8 +7,10 @@ optimizer step, so semantics are full-batch regardless of chunk size
 
 Blocks: G-block updates (G_raw [, b]) with everything else frozen; F-block
 updates (F, a [, gamma]). The L1 penalty on F is applied as a proximal
-soft-threshold scaled by Adam's per-coordinate step size; |F| is hard-clipped
-at ``F_CLIP`` as the separation backstop (spec 5.2).
+soft-threshold scaled by Adam's per-coordinate step size; each factor's
+contribution to the log-mean is hard-clipped at ``F_CLIP`` as the separation
+backstop (spec 5.2). A small L1 on G (``FitConfig.lam_G``) anchors the
+usage-baseline flat direction — see ``rescale_columns``.
 """
 
 from __future__ import annotations

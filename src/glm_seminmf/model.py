@@ -7,8 +7,9 @@ Model (features x samples counts X):
 with signed ``F`` (p x k), non-negative ``G`` (n x k), per-feature intercepts
 ``a``, per-sample log-exposure ``b``, optional covariate term, and per-feature
 NB2 dispersion ``theta``. Fitted by block-alternating minimization of
-``NLL + l1_F * ||F||_1`` (see the implementation spec for the identifiability
-rationale behind the constraints).
+``NLL + l1_F * ||F||_1 + l1_G * sum(G)`` (see the implementation spec for the
+identifiability rationale behind the constraints, and the ``l1_G`` parameter
+docs for why the small usage penalty exists).
 """
 
 from __future__ import annotations
