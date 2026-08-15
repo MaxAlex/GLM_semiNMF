@@ -139,7 +139,9 @@ reinitialized** — a run that produces them is evidence about `k`.
   jointly and can absorb structure that belongs in `G`. An array supplies
   fixed per-sample log-exposure offsets.
 - `l1_F` applies to the summed NLL with `F` column-normalized, so its
-  meaning is stable in `p` but should scale roughly with `n`.
+  meaning is stable in `p` but should scale roughly with `n`; start around
+  `0.001·n`. Benchmarks show `0.01·n` is already strong enough to crush real
+  factors and stall convergence.
 - `batch_size` bounds memory (sample-chunked streaming; a dense p × n mean
   matrix is never materialized). It does not change semantics — gradients are
   accumulated to full batch either way.

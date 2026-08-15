@@ -67,7 +67,7 @@ def bench_scaling(quick: bool, device: str):
         grid = grid[:2]
     for p, n, k in grid:
         sim = simulate_nb_seminmf(p=p, n=n, k=k, random_state=0)
-        m = NBGLMSemiNMF(n_components=k, l1_F=0.01 * n, random_state=0, device=device)
+        m = NBGLMSemiNMF(n_components=k, l1_F=0.001 * n, random_state=0, device=device)
         wall, mem = _fit_timed(m, sim.X)
         rows.append(
             dict(p=p, n=n, k=k, device=device, wall_s=round(wall, 1),
@@ -83,7 +83,7 @@ def bench_init_and_optimizer(quick: bool, device: str):
     questions 1-3)."""
     p, n, k = (600, 2000, 6) if quick else (2000, 8000, 8)
     sim = simulate_nb_seminmf(p=p, n=n, k=k, random_state=1)
-    lam = 0.01 * n
+    lam = 0.001 * n
     out = {"traces": {}, "summary": []}
 
     combos = [("svd", "adam", "softplus"), ("nmf", "adam", "softplus"),
@@ -112,7 +112,7 @@ def bench_exposure(quick: bool, device: str):
     sim = simulate_nb_seminmf(p=p, n=n, k=k, random_state=2, exposure_sd=0.8)
     fits = {}
     for mode in ["offset", "fit"]:
-        m = NBGLMSemiNMF(n_components=k, l1_F=0.01 * n, exposure=mode,
+        m = NBGLMSemiNMF(n_components=k, l1_F=0.001 * n, exposure=mode,
                          random_state=0, device=device)
         wall, _ = _fit_timed(m, sim.X)
         fits[mode] = m
@@ -143,7 +143,7 @@ def bench_real_data(quick: bool, device: str):
     X = load_newsgroups(quick)
     p, n = X.shape
     k = 10
-    lam = 0.01 * n
+    lam = 0.001 * n
     print(f"20 Newsgroups: p={p} n={n} nnz_frac={X.nnz/(p*n):.4f}")
     out = {"shape": [p, n]}
 
@@ -191,7 +191,13 @@ def bench_real_data(quick: bool, device: str):
     )
     print("nmf:", out["nmf"])
 
-    # GLM-PCA baseline (Poisson/NB GLM factor model, unconstrained loadings)
+    # GLM-PCA baseline (Poisson/NB GLM factor model, unconstrained loadings).
+    # Pure-numpy dense implementation: only run at quick size, where all three
+    # methods see identical data; hours-slow beyond ~5e6 entries.
+    if p * n > 5_000_000:
+        out["glmpca"] = dict(skipped="matrix too large for the dense glmpca reference; see --quick run")
+        print("glmpca:", out["glmpca"])
+        return out
     try:
         from glmpca.glmpca import glmpca
 

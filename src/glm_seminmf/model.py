@@ -54,10 +54,12 @@ class NBGLMSemiNMF:
         Number of latent factors ``k``.
     l1_F : float, default 0.0
         L1 penalty weight on the (column-normalized) loadings. The penalty is
-        applied to the *summed* NLL, so scale it with the number of samples.
-        Not optional in spirit: it controls separation divergence and
-        strengthens identifiability; ``0.0`` is accepted but will warn if any
-        loading hits the internal hard clip.
+        applied to the *summed* NLL, so scale it with the number of samples;
+        ``0.001 * n`` is a good starting point (an order of magnitude more
+        visibly degrades fit and factor recovery). Not optional in spirit: it
+        controls separation divergence and strengthens identifiability;
+        ``0.0`` is accepted but will warn if any loading hits the internal
+        hard clip.
     l1_G : float or "auto", default "auto"
         Small L1 penalty on usages (sum of G). The linear predictor is
         invariant under ``G_k -> G_k + c`` with ``a -> a - c F_k``, so the
