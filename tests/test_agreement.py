@@ -38,7 +38,7 @@ def test_sparse_streaming_path_agrees(monkeypatch):
 
     monkeypatch.setattr(inputs, "_DENSIFY_ELEMENTS", 0)
     monkeypatch.setattr(init, "_DENSIFY_ELEMENTS", 0)
-    monkeypatch.setattr(ft, "_RESIDENT_ELEMENTS", 0)
+    monkeypatch.setattr(ft, "_residency_limit", lambda device, dtype: 0)
     monkeypatch.setattr(ft, "_CHUNK_ELEMENTS", 200 * 64)
     m_sparse = quick_model(3, max_iter=60).fit(Xs)
 

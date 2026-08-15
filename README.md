@@ -26,9 +26,20 @@ log μ_fs = a_f + b_s + (Zγ)_fs + Σ_k F_fk · G_sk
 | `Z`, `γ` | n × q, p × q | given / free | Measured nuisance covariates and their coefficients |
 | `θ` | p | > 0 | Per-feature NB dispersion |
 
-Objective: `NLL(F, G, a, b, γ; θ) + l1_F · ‖F‖₁`, minimized by
+Objective: `NLL(F, G, a, b, γ; θ) + l1_F · ‖F‖₁ + l1_G · Σ G`, minimized by
 block-alternating optimization (Adam per block, proximal soft-threshold for
 the L1 term, method-of-moments dispersion with trend shrinkage).
+
+The `l1_G` term (default `0.005·p`, small relative to the likelihood) is an
+addition beyond the original spec objective, adopted for an identifiability
+reason found empirically: the predictor is invariant under
+`G_k → G_k + c, a → a − c·F_k`, so the likelihood leaves each usage column's
+baseline free. Unanchored, fitted `G` drifts dense, the orthant constraint
+never binds, and rotational ambiguity partially returns (factor recovery
+drops measurably). The penalty smoothly selects the touch-zero representative
+of each usage column; a per-iteration min-shift canonicalization (analogous
+to the scale fixing) enforces the same convention exactly. Set `l1_G=0.0` to
+recover the bare spec objective.
 
 ## Why signed F but non-negative G
 
@@ -76,6 +87,7 @@ sim = simulate_nb_seminmf(p=2000, n=3000, k=8,
 model = NBGLMSemiNMF(
     n_components=8,
     l1_F=3.0,             # scaled to the summed NLL: grow it with n
+    l1_G="auto",          # usage-baseline anchor, 0.005*p (see above)
     exposure="offset",    # b_s = log(total_s / median total), held fixed
     dispersion="trend",   # per-feature theta shrunk toward a mean trend
     init="svd",

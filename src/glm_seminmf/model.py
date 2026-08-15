@@ -366,11 +366,14 @@ class NBGLMSemiNMF:
     def transform(self, X, Z=None, exposure: np.ndarray | None = None) -> np.ndarray:
         """Fit usages ``G`` for new samples with F, a, gamma, theta held fixed.
 
-        Returns the (n_new, k) non-negative usage matrix (also stored moments:
-        the raw pre-softplus values are returned via ``transform_raw_``).
-        ``exposure`` optionally supplies fixed log-exposure offsets; otherwise
-        offsets are computed from totals with the fit-time median (and, when
-        the model was fitted with ``exposure="fit"``, refined per sample).
+        ``X`` is (p, n_new) raw integer counts over the fit-time features;
+        ``Z`` must be supplied iff the model was fitted with covariates.
+        Returns the (n_new, k) non-negative usage matrix, snapped to exact
+        zeros like ``G_``; the tie-free pre-softplus values are stored as
+        ``transform_raw_``. ``exposure`` optionally supplies fixed per-sample
+        log-exposure offsets; otherwise offsets come from the new samples'
+        totals scaled by the fit-time median total (and are refined per
+        sample when the model was fitted with ``exposure="fit"``).
         """
         if not hasattr(self, "F_"):
             raise RuntimeError("transform called before fit")

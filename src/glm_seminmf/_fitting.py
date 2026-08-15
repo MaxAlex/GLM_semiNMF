@@ -31,8 +31,23 @@ F_CLIP = 15.0
 # Auto-chunking: ~this many matrix elements per streamed chunk (float32:
 # ~128 MB forward, a few x that with autograd buffers).
 _CHUNK_ELEMENTS = 32_000_000
-# X kept resident on the compute device when p*n is at most this.
+# Fallback residency cap (elements) when device memory cannot be queried.
 _RESIDENT_ELEMENTS = 200_000_000
+
+
+def _residency_limit(device: torch.device, dtype: torch.dtype) -> int:
+    """Max p*n elements to keep resident on the device. Streaming instead of
+    residency costs a full host-to-device copy of X per gradient pass, so be
+    as generous as free memory allows (chunked compute still bounds the
+    autograd working set)."""
+    itemsize = torch.tensor([], dtype=dtype).element_size()
+    if device.type == "cuda":
+        try:
+            free, _ = torch.cuda.mem_get_info(device)
+            return int(0.35 * free / itemsize)
+        except Exception:  # pragma: no cover - driver-dependent
+            return _RESIDENT_ELEMENTS
+    return 1_000_000_000  # CPU: ~4 GB float32; chunk conversion dominates otherwise
 
 
 class DataSource:
@@ -51,9 +66,15 @@ class DataSource:
         self._sparse = sp.issparse(X)
         self._X_host = X
         self._resident = None
-        if self.p * self.n <= _RESIDENT_ELEMENTS:
+        if self.p * self.n <= _residency_limit(device, dtype):
             dense = X.toarray() if self._sparse else np.asarray(X)
             self._resident = torch.as_tensor(dense, device=device, dtype=dtype)
+        elif not self._sparse:
+            # Streaming path: stage the host copy in the compute dtype once so
+            # each pass pays only the transfer, not an int -> float conversion.
+            np_dtype = np.float32 if dtype == torch.float32 else np.float64
+            if X.dtype != np_dtype:
+                self._X_host = np.ascontiguousarray(X, dtype=np_dtype)
 
     def __iter__(self):
         for s in range(0, self.n, self.chunk):
@@ -67,10 +88,6 @@ class DataSource:
             z = None if self.Z is None else self.Z[s:e]
             yield s, e, x, z
 
-    def totals(self) -> np.ndarray:
-        """Per-sample total counts (for exposure offsets)."""
-        t = self._X_host.sum(axis=0)
-        return np.asarray(t).ravel()
 
 
 @dataclass
