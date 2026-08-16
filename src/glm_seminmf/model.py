@@ -257,7 +257,12 @@ class NBGLMSemiNMF:
         as_t = lambda arr: torch.as_tensor(np.asarray(arr, dtype=np.float64), device=device, dtype=dtype)
         G0t = as_t(G0)
         if self.g_parametrization == "softplus":
-            G_raw = softplus_inv(G0t.clamp(min=1e-6))
+            # Seeded jitter so no two usages start bit-identical: clamped init
+            # entries would otherwise stay tied forever (dead entries take
+            # sign-saturated Adam steps of exactly -lr in lockstep), breaking
+            # G_raw_'s tie-freeness for downstream rank statistics.
+            G0t = G0t.clamp(min=1e-6) * (1.0 + 1e-4 * torch.rand_like(G0t))
+            G_raw = softplus_inv(G0t)
         elif self.g_parametrization == "projected":
             G_raw = G0t.clone()
         else:

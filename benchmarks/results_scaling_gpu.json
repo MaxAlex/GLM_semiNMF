@@ -1,0 +1,51 @@
+{
+  "device": "auto",
+  "cuda": true,
+  "quick": false,
+  "scaling": [
+    {
+      "p": 1000,
+      "n": 5000,
+      "k": 10,
+      "device": "auto",
+      "wall_s": 23.9,
+      "peak_gpu_mb": 197.4,
+      "n_iter": 500,
+      "converged": false,
+      "dev_expl": 0.339
+    },
+    {
+      "p": 3000,
+      "n": 20000,
+      "k": 10,
+      "device": "auto",
+      "wall_s": 244.9,
+      "peak_gpu_mb": 1225.6,
+      "n_iter": 500,
+      "converged": false,
+      "dev_expl": 0.47
+    },
+    {
+      "p": 3000,
+      "n": 20000,
+      "k": 30,
+      "device": "auto",
+      "wall_s": 250.4,
+      "peak_gpu_mb": 1233.4,
+      "n_iter": 500,
+      "converged": false,
+      "dev_expl": 0.475
+    },
+    {
+      "p": 5000,
+      "n": 50000,
+      "k": 10,
+      "device": "auto",
+      "wall_s": 1018.9,
+      "peak_gpu_mb": 1957.5,
+      "n_iter": 500,
+      "converged": false,
+      "dev_expl": 0.455
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "device": "auto",
+  "cuda": true,
+  "quick": false,
+  "exposure": {
+    "recovery_offset": 0.922,
+    "recovery_fit": 0.895,
+    "cross_agreement": 0.903,
+    "b_agreement": 0.946
+  }
+}

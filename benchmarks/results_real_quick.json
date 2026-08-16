@@ -1,0 +1,33 @@
+{
+  "device": "auto",
+  "cuda": true,
+  "quick": true,
+  "real": {
+    "shape": [
+      1500,
+      2328
+    ],
+    "ours": {
+      "wall_s": 17.2,
+      "dev_expl": -0.0091,
+      "n_iter": 500,
+      "peak_gpu_mb": 142.9
+    },
+    "rotation_stability": {
+      "mean": 1.0,
+      "min": 1.0,
+      "pairs": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "nmf": {
+      "wall_s": 0.2,
+      "dev_expl": 0.0491
+    },
+    "glmpca": {
+      "error": "ModuleNotFoundError(\"No module named 'statsmodels'\")"
+    }
+  }
+}

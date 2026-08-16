@@ -139,6 +139,12 @@ class FitConfig:
     inner_steps: int = 5
     lbfgs_inner: int = 8
     theta_every: int = 10
+    # Hard cap on theta refreshes. MoM dispersion has a positive feedback
+    # with the mean model (unexplained variance -> lower theta -> flatter
+    # likelihood -> penalties shrink factors -> more unexplained variance);
+    # left running it drifts the fit away from its optimum. Freezing after a
+    # bounded schedule breaks the loop by construction.
+    theta_max_updates: int = 15
     dispersion_mode: str | float = "trend"
     update_theta: bool = True
     lr_decay: float = 0.5
@@ -180,11 +186,17 @@ def total_deviance(state: FitState, data: DataSource, drop_factor: int | None = 
     return total
 
 
-def refresh_dispersion(state: FitState, data: DataSource, mode: str | float) -> None:
-    """Method-of-moments update of log_theta from current residuals."""
+def refresh_dispersion(state: FitState, data: DataSource, mode: str | float) -> float:
+    """Method-of-moments update of log_theta from current residuals.
+
+    Returns the max absolute change in log_theta, so the caller can freeze
+    dispersion once it has stabilized: theta re-estimation feeds back into the
+    mean model, and left running it can sustain a limit cycle in which the
+    objective never meets the stall criterion.
+    """
     if isinstance(mode, (int, float)):
         state.log_theta.fill_(float(np.log(mode)))
-        return
+        return 0.0
     p = state.F.shape[0]
     kw = dict(dtype=state.F.dtype, device=state.F.device)
     ssr, s_mu, s_mu2 = torch.zeros(p, **kw), torch.zeros(p, **kw), torch.zeros(p, **kw)
@@ -194,7 +206,10 @@ def refresh_dispersion(state: FitState, data: DataSource, mode: str | float) -> 
             ssr += ((x - mu) ** 2).sum(dim=1)
             s_mu += mu.sum(dim=1)
             s_mu2 += (mu**2).sum(dim=1)
-        state.log_theta.copy_(dispersion_from_moments(ssr, s_mu, s_mu2, mode))
+        new = dispersion_from_moments(ssr, s_mu, s_mu2, mode)
+        delta = float((new - state.log_theta).abs().max().item())
+        state.log_theta.copy_(new)
+    return delta
 
 
 def _accumulate_grads(state: FitState, data: DataSource, lam_G: float = 0.0) -> None:
@@ -260,20 +275,28 @@ def rescale_columns(state: FitState) -> None:
     if state.F.shape[1] == 0:
         return
     with torch.no_grad():
-        G = state.G(slice(None))
-        m = G.min(dim=0).values
-        if (m > 1e-8).any():
-            state.a.add_(state.F @ m)
-            G = (G - m).clamp(min=1e-12)
-            state.G_raw.copy_(softplus_inv(G) if state.g_param == "softplus" else G)
         norms = state.F.norm(dim=0)
         c = torch.where(norms > 1e-12, norms, torch.ones_like(norms))
         state.F.div_(c)
         if state.g_param == "softplus":
-            g = tf.softplus(state.G_raw) * c
-            state.G_raw.copy_(softplus_inv(g.clamp(min=1e-12)))
+            # Single float64 round trip for scale + shift: float32
+            # cancellation in (G - m) quantizes near-minimum (dead) entries
+            # onto identical values, breaking G_raw_'s tie-freeness; and the
+            # shift floor is additive rather than a clamp for the same reason.
+            g64 = tf.softplus(state.G_raw.double()) * c.double()
+            m = g64.min(dim=0).values
+            m = torch.where(m > 1e-8, m, torch.zeros_like(m))
+            if (m > 0).any():
+                state.a.add_(state.F @ m.to(state.F.dtype))
+                g64 = g64 - m + 1e-12
+            state.G_raw.copy_(softplus_inv(g64).to(state.G_raw.dtype))
         else:
             state.G_raw.mul_(c)
+            m = state.G_raw.min(dim=0).values
+            m = torch.where(m > 1e-8, m, torch.zeros_like(m))
+            if (m > 0).any():
+                state.a.add_(state.F @ m)
+                state.G_raw.sub_(m.unsqueeze(0))
 
 
 def _lbfgs_block(params: list[torch.Tensor], state: FitState, data: DataSource, cfg: FitConfig, is_F: bool) -> None:
@@ -328,6 +351,8 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
     stall = 0
     converged = False
     best, best_it = np.inf, 0
+    best_state = None
+    theta_updates = 0
     for it in range(cfg.max_iter):
         if cfg.algorithm == "adam_joint":
             _set_active(params_F + params_G, all_params)
@@ -364,12 +389,23 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
 
         rescale_columns(state)
         if theta_active and (it + 1) % cfg.theta_every == 0:
-            refresh_dispersion(state, data, cfg.dispersion_mode)
+            delta = refresh_dispersion(state, data, cfg.dispersion_mode)
+            theta_updates += 1
+            # Freeze once stabilized or once the budget is spent (see
+            # theta_max_updates); convergence is then judged at fixed theta.
+            if delta < 0.05 or theta_updates >= cfg.theta_max_updates:
+                theta_active = False
 
         loss = full_objective(state, data, cfg.lam, cfg.lam_G)
         losses.append(loss)
         if cfg.verbose and (it % 10 == 0 or it == cfg.max_iter - 1):
             print(f"[glm_seminmf] iter {it:4d}  loss {loss:.6e}")
+
+        if loss < best:
+            best, best_it = loss, it
+            best_state = [prm.detach().clone() for prm in all_params] + [
+                state.log_theta.detach().clone()
+            ]
 
         rel = abs(prev - loss) / (abs(prev) + 1e-12) if prev is not None else np.inf
         if rel < cfg.tol:
@@ -391,14 +427,21 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
 
         # Plateau-triggered learning-rate decay: full-batch Adam oscillates at
         # a fixed step size; geometric decay lets the tol criterion bind.
-        if loss < best:
-            best, best_it = loss, it
-        elif it - best_it >= cfg.lr_patience:
+        if it - best_it >= cfg.lr_patience:
             for opt in (opt_G, opt_F, opt_J):
                 for grp in opt.param_groups:
                     grp["lr"] *= cfg.lr_decay
             best_it = it
         prev = loss
+
+    # Return the best iterate visited, not the last one: an unconverged run
+    # (or a theta refresh late in the fit) can end above its own minimum.
+    if best_state is not None and losses and losses[-1] > best:
+        with torch.no_grad():
+            for prm, saved in zip(all_params, best_state[:-1]):
+                prm.copy_(saved)
+            state.log_theta.copy_(best_state[-1])
+        losses.append(best)
 
     _set_active([], all_params)
     clip_hit = False

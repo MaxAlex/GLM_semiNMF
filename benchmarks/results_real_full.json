@@ -1,0 +1,40 @@
+{
+  "device": "auto",
+  "cuda": true,
+  "quick": false,
+  "real": {
+    "shape": [
+      3000,
+      6583
+    ],
+    "ours": {
+      "wall_s": 83.7,
+      "dev_expl": -0.0112,
+      "n_iter": 500,
+      "peak_gpu_mb": 701.9
+    },
+    "rotation_stability": {
+      "mean": 1.0,
+      "min": 1.0,
+      "pairs": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "nmf": {
+      "wall_s": 1.2,
+      "dev_expl": 0.0214
+    },
+    "glmpca": {
+      "skipped": "matrix too large for the dense glmpca reference; see --quick run"
+    }
+  }
+}
