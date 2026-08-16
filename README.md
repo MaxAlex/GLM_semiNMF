@@ -8,6 +8,10 @@ Applies to any count matrix where samples vary in total exposure and features
 are overdispersed relative to Poisson — document–term matrices, survey counts,
 event telemetry. Nothing in the model or implementation is domain-specific.
 
+A full description of the estimation method — the math, the identifiability
+analysis, the numerical stabilizations, and open questions — is in
+[`docs/METHOD.md`](docs/METHOD.md).
+
 ## Model
 
 Counts `X ∈ ℕ^{p×n}` (features × samples):
