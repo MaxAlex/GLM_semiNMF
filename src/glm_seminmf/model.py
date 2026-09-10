@@ -273,6 +273,25 @@ class NBGLMSemiNMF:
                 RuntimeWarning,
                 stacklevel=2,
             )
+        # Did the optimizer ever beat its own warm start? If the best iterate is the
+        # first one, run_fit's best-iterate restore hands back the initialization and
+        # every fitted attribute describes the *init*, not a fit -- silently, and with
+        # a plausible-looking deviance_explained. It happens when the step size is too
+        # large for the data's curvature (observed on sparse real counts at the default
+        # learning_rate, where the loss rose ~23x over the first eight iterations and
+        # never recovered), so raising max_iter cannot fix it and makes results look
+        # reassuringly stable across iteration budgets. Surfaced as an attribute and a
+        # warning because nothing else downstream can detect it.
+        self.improved_on_init_ = bool(len(self.loss_) > 1 and self.loss_.min() < self.loss_[0])
+        if not self.improved_on_init_:
+            warnings.warn(
+                "the optimizer never improved on its initialization: the best iterate "
+                "is the first one, so the returned fit is the warm start. Lower "
+                "`learning_rate` (the usual cause is divergence in the first few "
+                "iterations) rather than raising `max_iter`, which cannot help",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         if clip_hit:
             if F_fixed is not None:
                 warnings.warn(
