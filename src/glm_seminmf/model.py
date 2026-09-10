@@ -204,30 +204,63 @@ class NBGLMSemiNMF:
 
     # -------------------------------------------------------------------- fit
 
-    def fit(self, X, Z=None) -> "NBGLMSemiNMF":
+    def fit(self, X, Z=None, F_fixed: np.ndarray | None = None) -> "NBGLMSemiNMF":
         """Fit the model to counts ``X`` (p features x n samples).
 
         ``X``: dense ndarray or scipy CSR/CSC of raw integer counts.
         ``Z``: optional (n, q) covariate design (ndarray or DataFrame;
         DataFrame categoricals are one-hot encoded, first level dropped).
+        ``F_fixed``: optional (p, k) loading matrix — typically a consensus basis
+        from matching/clustering candidates across many upstream fits (Pass B).
+        When given, ``F`` is held fixed at this matrix throughout the fit (never
+        proxed, clipped, rescaled, or reordered by deviance — ``F_`` comes back
+        unchanged up to the configured ``dtype``'s floating-point precision; use
+        ``dtype="float64"`` for a literally bit-identical ``F_``) and only ``a``,
+        ``b`` (if ``exposure="fit"``), ``gamma``, ``theta``, and ``G`` are
+        estimated. ``n_components`` is overridden by ``F_fixed.shape[1]``, and the
+        returned ``G_`` columns keep exactly ``F_fixed``'s factor order — unlike an
+        ordinary fit's deviance-sorted columns — so factor identity is
+        comparable across cohorts fit against the same ``F_fixed``. This is the
+        projection primitive for a *consensus* basis; see :meth:`transform` for
+        projecting onto a basis that already has a parent ``fit()`` call (its own
+        ``a``/``gamma``/``theta``, not shared across cohorts).
         """
         X, p, n = validate_X(X)
         if hasattr(self, "median_total_"):
             del self.median_total_
         Znp, self.z_names_ = encode_Z(Z, n)
-        k = self.n_components
         device, dtype = self._torch_device(), self._torch_dtype()
         if self.random_state is not None:
             torch.manual_seed(self.random_state)
 
         b0, b_trainable = self._exposure_b(X, n)
-        F0, G0, a0, gamma0 = initialize(X, b0, k, self.init, self.random_state, Znp)
+
+        self.F_fixed_ = F_fixed is not None
+        if F_fixed is not None:
+            F_fixed = np.asarray(F_fixed, dtype=np.float64)
+            if F_fixed.shape[0] != p:
+                raise ValueError(f"F_fixed has {F_fixed.shape[0]} rows, expected p={p} features")
+            k = F_fixed.shape[1]
+            self.n_components = k
+            # a0/gamma0 only: F0/G0 from this call are discarded (F is F_fixed; G
+            # gets a real projection warm start below, once state.F is set).
+            # method="random" is the cheapest way to reach the a0/gamma0 branch
+            # without paying for an SVD/NMF init that would immediately be thrown
+            # away.
+            _, _, a0, gamma0 = initialize(X, b0, k, "random", self.random_state, Znp)
+            F0, G0 = F_fixed, np.zeros((n, k))
+        else:
+            k = self.n_components
+            F0, G0, a0, gamma0 = initialize(X, b0, k, self.init, self.random_state, Znp)
 
         state = self._build_state(F0, G0, a0, b0, gamma0, Znp, p, n, k, b_trainable, device, dtype)
-        rescale_columns(state)
         data = DataSource(X, Znp, device, dtype, self.batch_size)
+        if F_fixed is not None:
+            self._warm_start_G(state, data)
+        rescale_columns(state, frozen_F=F_fixed is not None)
 
         cfg = self._cfg(p)
+        cfg.frozen_F = F_fixed is not None
         losses, n_iter, converged, clip_hit = run_fit(state, data, cfg)
 
         self.loss_ = np.asarray(losses)
@@ -241,16 +274,27 @@ class NBGLMSemiNMF:
                 stacklevel=2,
             )
         if clip_hit:
-            warnings.warn(
-                "some loadings sit at the separation hard clip (factor "
-                f"contribution to the log-mean bounded at {F_CLIP}); this "
-                "indicates likelihood divergence under separation — increase "
-                "l1_F rather than relying on the clip",
-                RuntimeWarning,
-                stacklevel=2,
-            )
+            if F_fixed is not None:
+                warnings.warn(
+                    "some F_fixed columns saturate the separation bound at this "
+                    f"cohort's fitted G (contribution to the log-mean bounded at "
+                    f"{F_CLIP}); the supplied basis may not be well scaled for "
+                    "this cohort's counts — this is not a signal to change l1_F, "
+                    "which has no effect on a fixed F",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            else:
+                warnings.warn(
+                    "some loadings sit at the separation hard clip (factor "
+                    f"contribution to the log-mean bounded at {F_CLIP}); this "
+                    "indicates likelihood divergence under separation — increase "
+                    "l1_F rather than relying on the clip",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
 
-        self._finalize(state, data)
+        self._finalize(state, data, frozen_F=F_fixed is not None)
         return self
 
     def _build_state(self, F0, G0, a0, b0, gamma0, Znp, p, n, k, b_trainable, device, dtype) -> FitState:
@@ -282,17 +326,21 @@ class NBGLMSemiNMF:
 
     # -------------------------------------------------------- post-processing
 
-    def _finalize(self, state: FitState, data: DataSource) -> None:
+    def _finalize(self, state: FitState, data: DataSource, frozen_F: bool = False) -> None:
         k = state.F.shape[1]
         d_model = total_deviance(state, data)
         d_null = self._null_deviance(state, data)
         self.deviance_explained_ = float(1.0 - d_model / d_null) if d_null > 0 else 0.0
 
-        # Per-factor deviance explained by no-refit ablation, then order by it.
+        # Per-factor deviance explained by no-refit ablation. Ordinarily also used to
+        # sort columns by it; skipped when F is a caller-supplied consensus basis
+        # (frozen_F) — reordering would break factor-index correspondence with every
+        # other cohort fit against the same F_fixed, which is the entire point of
+        # fixing it.
         dev_k = np.array(
             [(total_deviance(state, data, drop_factor=j) - d_model) / d_null for j in range(k)]
         )
-        order = np.argsort(-dev_k)
+        order = np.arange(k) if frozen_F else np.argsort(-dev_k)
         with torch.no_grad():
             state.F.copy_(state.F[:, order.copy()])
             state.G_raw.copy_(state.G_raw[:, order.copy()])

@@ -150,6 +150,13 @@ class FitConfig:
     lr_decay: float = 0.5
     lr_patience: int = 10
     verbose: bool = False
+    # F held fixed (a consensus basis passed in, not fit here): excluded from every
+    # trainable-parameter list, never proxed/clipped, and rescale_columns skips its
+    # column-normalization step so the caller's F comes back unchanged (exactly, up
+    # to the configured torch dtype's floating-point precision -- fit(dtype="float32")
+    # is the default and round-trips through float32, so use dtype="float64" for a
+    # literally bit-identical F_).
+    frozen_F: bool = False
 
 
 def _set_active(active: list[torch.Tensor], all_params: list[torch.Tensor]) -> None:
@@ -261,7 +268,7 @@ def _project_G(state: FitState) -> None:
             state.G_raw.clamp_(min=0.0)
 
 
-def rescale_columns(state: FitState) -> None:
+def rescale_columns(state: FitState, frozen_F: bool = False) -> None:
     """Canonicalize the per-factor ambiguities the likelihood cannot see.
     Must run before the convergence check (spec section 3).
 
@@ -270,14 +277,20 @@ def rescale_columns(state: FitState) -> None:
        ``a``). Without this the orthant constraint never binds — fitted G goes
        dense and rotational ambiguity partially returns, which measurably
        degrades factor recovery.
-    2. Scale: unit-L2 columns of F, scale pushed into G.
+    2. Scale: unit-L2 columns of F, scale pushed into G. Skipped when
+       ``frozen_F`` — a caller-supplied basis (a consensus ``F*``) is not
+       renormalized out from under it; only the shift step, which never
+       touches ``F``, still runs.
     """
     if state.F.shape[1] == 0:
         return
     with torch.no_grad():
-        norms = state.F.norm(dim=0)
-        c = torch.where(norms > 1e-12, norms, torch.ones_like(norms))
-        state.F.div_(c)
+        if frozen_F:
+            c = torch.ones(state.F.shape[1], dtype=state.F.dtype, device=state.F.device)
+        else:
+            norms = state.F.norm(dim=0)
+            c = torch.where(norms > 1e-12, norms, torch.ones_like(norms))
+            state.F.div_(c)
         if state.g_param == "softplus":
             # Single float64 round trip for scale + shift: float32
             # cancellation in (G - m) quantizes near-minimum (dead) entries
@@ -331,11 +344,17 @@ def _lbfgs_block(params: list[torch.Tensor], state: FitState, data: DataSource, 
 def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
     """Alternating minimization until convergence. Returns (losses, n_iter,
     converged, clip_hit)."""
-    all_params = [state.F, state.a, state.G_raw, state.b] + (
-        [state.gamma] if state.gamma is not None else []
+    all_params = (
+        ([] if cfg.frozen_F else [state.F])
+        + [state.a, state.G_raw, state.b]
+        + ([state.gamma] if state.gamma is not None else [])
     )
     params_G = [state.G_raw] + ([state.b] if state.b_trainable else [])
-    params_F = [prm for prm in [state.F, state.a, state.gamma] if prm is not None]
+    params_F = [
+        prm
+        for prm in ([] if cfg.frozen_F else [state.F]) + [state.a, state.gamma]
+        if prm is not None
+    ]
     have_k = state.F.shape[1] > 0
 
     opt_G = torch.optim.Adam(params_G, lr=cfg.lr_G)
@@ -360,7 +379,8 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
                 opt_J.zero_grad(set_to_none=True)
                 _accumulate_grads(state, data, cfg.lam_G)
                 opt_J.step()
-                _prox_and_clip_F(state, opt_J, cfg)
+                if not cfg.frozen_F:
+                    _prox_and_clip_F(state, opt_J, cfg)
                 _project_G(state)
         elif cfg.algorithm == "lbfgs":
             if have_k:
@@ -369,7 +389,8 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
                 _project_G(state)
             _set_active(params_F, all_params)
             _lbfgs_block(params_F, state, data, cfg, is_F=True)
-            _prox_and_clip_F(state, None, cfg)
+            if not cfg.frozen_F:
+                _prox_and_clip_F(state, None, cfg)
         elif cfg.algorithm == "adam":
             if have_k:
                 _set_active(params_G, all_params)
@@ -383,11 +404,12 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
                 opt_F.zero_grad(set_to_none=True)
                 _accumulate_grads(state, data)
                 opt_F.step()
-                _prox_and_clip_F(state, opt_F, cfg)
+                if not cfg.frozen_F:
+                    _prox_and_clip_F(state, opt_F, cfg)
         else:
             raise ValueError(f"unknown algorithm: {cfg.algorithm!r}")
 
-        rescale_columns(state)
+        rescale_columns(state, frozen_F=cfg.frozen_F)
         if theta_active and (it + 1) % cfg.theta_every == 0:
             delta = refresh_dispersion(state, data, cfg.dispersion_mode)
             theta_updates += 1
