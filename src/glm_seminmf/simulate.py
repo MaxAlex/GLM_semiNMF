@@ -46,6 +46,7 @@ def simulate_nb_seminmf(
     exposure_sd: float = 0.5,
     n_batches: int = 0,
     batch_strength: float = 1.0,
+    F_fixed: np.ndarray | None = None,
     random_state: int | None = None,
 ) -> SimulatedData:
     """Draw ``X ~ NB(mu, theta)`` with ``log mu = a + b + Z gamma + F G^T``.
@@ -54,9 +55,11 @@ def simulate_nb_seminmf(
     ----------
     p, n, k
         Features, samples, latent factors. ``k=0`` gives null data
-        (intercepts, exposure, and covariates only).
+        (intercepts, exposure, and covariates only). Ignored for ``k`` when
+        ``F_fixed`` is given: ``k`` is then taken from ``F_fixed.shape[1]``.
     density_F, density_G
         Fraction of nonzero entries per loading column / usage column.
+        ``density_F`` is ignored when ``F_fixed`` is given.
     negative_loading_fraction
         Probability that a nonzero loading entry is negative. This is the knob
         that distinguishes the signed model from plain NMF.
@@ -80,19 +83,37 @@ def simulate_nb_seminmf(
     """
     rng = np.random.default_rng(random_state)
 
+    if F_fixed is not None:
+        F_fixed = np.asarray(F_fixed, dtype=np.float64)
+        if F_fixed.shape[0] != p:
+            raise ValueError(f"F_fixed has {F_fixed.shape[0]} rows, expected p={p}")
+        k = F_fixed.shape[1]
+
     a = rng.normal(baseline_log_mean, baseline_spread, size=p)
     b = rng.normal(0.0, exposure_sd, size=n)
     theta = np.exp(np.log(dispersion) + rng.normal(0.0, dispersion_spread, size=p))
 
-    F = np.zeros((p, k))
+    F = F_fixed.copy() if F_fixed is not None else np.zeros((p, k))
     G = np.zeros((n, k))
     for j in range(k):
-        nnz_f = max(2, int(round(density_F * p)))
-        support = rng.choice(p, size=nnz_f, replace=False)
-        mags = rng.gamma(shape=2.0, scale=0.5, size=nnz_f) + 0.1
-        signs = np.where(rng.random(nnz_f) < negative_loading_fraction, -1.0, 1.0)
-        F[support, j] = signs * mags
-        F[:, j] /= np.linalg.norm(F[:, j])
+        if F_fixed is None:
+            nnz_f = max(2, int(round(density_F * p)))
+            support = rng.choice(p, size=nnz_f, replace=False)
+            mags = rng.gamma(shape=2.0, scale=0.5, size=nnz_f) + 0.1
+            signs = np.where(rng.random(nnz_f) < negative_loading_fraction, -1.0, 1.0)
+            F[support, j] = signs * mags
+            F[:, j] /= np.linalg.norm(F[:, j])
+        else:
+            # Caller's loading, taken as-is (not re-normalized): a shared
+            # basis reused across many simulate_nb_seminmf calls — e.g. one
+            # call per donor in a cohort simulator — must stay bit-identical
+            # across calls, which re-normalizing per call would not guarantee
+            # if F_fixed were ever mutated in place upstream (it isn't here,
+            # since we copied above, but the contract should not depend on
+            # renormalization being a no-op).
+            support = np.flatnonzero(F[:, j])
+            if support.size == 0:
+                support = np.arange(p)  # dense/all-zero column: treat every feature as support
 
         active = rng.random(n) < density_G
         if not active.any():
