@@ -45,13 +45,21 @@ def _svd_init(Y, k: int, rng: np.random.Generator, gamma0, Zc):
         ones_n = np.ones(n)
 
         def mv(v):
-            out = Y @ v - row_means * v.sum()
+            # svds/ARPACK does not guarantee 1-D matvec inputs — scipy's
+            # LinearOperator wrapper passes through whatever shape ARPACK
+            # hands it, including (n, 1). Without ravel, `Y @ v` stays
+            # (p, 1) while `row_means * v.sum()` is (p,), and the subtraction
+            # silently broadcasts to (p, p) instead of raising — caught by
+            # scipy's own downstream reshape check, not here.
+            v = np.ravel(v)
+            out = np.ravel(Y @ v) - row_means * v.sum()
             if gamma0 is not None:
                 out = out - gamma0 @ (Zc.T @ v)
             return out
 
         def rmv(u):
-            out = Y.T @ u - ones_n * (row_means @ u)
+            u = np.ravel(u)
+            out = np.ravel(Y.T @ u) - ones_n * (row_means @ u)
             if gamma0 is not None:
                 out = out - Zc @ (gamma0.T @ u)
             return out
