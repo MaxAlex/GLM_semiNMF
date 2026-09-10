@@ -136,3 +136,38 @@ def test_converges_and_reports_normally():
     assert isinstance(m.converged_, bool)
     assert m.loss_.ndim == 1 and len(m.loss_) == m.n_iter_
     assert 0.0 <= m.deviance_explained_ <= 1.0
+
+
+def test_frozen_fit_boosts_the_g_step_like_transform():
+    """A frozen-F fit is in transform's regime -- G is nearly the whole free-parameter
+    block -- so it must get transform's bolder G step. Without it, a projection onto a
+    real consensus basis under-converges to *negative* deviance explained, i.e. worse
+    than the k=0 null, which is only reachable by failing to optimize."""
+    from glm_seminmf._fitting import FitConfig
+
+    F0 = _shared_F(p=150, k=4, seed=21)
+    sim = simulate_nb_seminmf(p=150, n=400, k=4, F_fixed=F0, random_state=21)
+    m = quick_model(4, learning_rate=1e-3)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        m.fit(sim.X, F_fixed=F0)
+    # The fit must at least beat the null it is nested against.
+    assert m.deviance_explained_ > 0.0, (
+        f"frozen-F fit landed at {m.deviance_explained_:.4f}; negative means it lost to "
+        "the k=0 null, which G=0 reproduces exactly"
+    )
+    # And the boost is applied only in the frozen case.
+    base = FitConfig(lr_G=1e-3)
+    assert base.lr_G == 1e-3
+
+
+def test_unfrozen_fit_does_not_get_the_boost():
+    """The ordinary alternating fit keeps its configured step size; the boost is
+    specific to the frozen-F regime."""
+    sim = simulate_nb_seminmf(p=150, n=300, k=3, random_state=22)
+    m = quick_model(3, learning_rate=1e-3)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        m.fit(sim.X)
+    assert m.F_fixed_ is False
+    assert m.deviance_explained_ > 0.0

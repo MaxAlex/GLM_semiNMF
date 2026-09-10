@@ -261,6 +261,23 @@ class NBGLMSemiNMF:
 
         cfg = self._cfg(p)
         cfg.frozen_F = F_fixed is not None
+        if cfg.frozen_F:
+            # With F held, G is essentially the entire free-parameter block: a
+            # projection of n cells onto k programs has n*k usages against only p
+            # intercepts and p dispersions. That is the regime `transform` is in, and
+            # `transform` raises the G step size for exactly this reason ("G-only
+            # optimization tolerates (and needs) a bolder step size than the
+            # alternating fit"); the same applies here and the omission is not
+            # harmless. Measured on a real Pass C projection (25k cells, 2,000 genes,
+            # 54 programs), deviance explained against effective lr_G:
+            #   1e-4 -> -0.42 (Gmean 1.48)   under-converged
+            #   1e-3 -> -0.04 (Gmean 0.78)
+            #   4e-3 -> +0.09 (Gmean 0.13)   best
+            #   1e-2 -> +0.01 (Gmean 0.02)   over-shrunk, G driven toward zero
+            # so there is an optimum rather than monotone improvement. A negative value
+            # is diagnostic, not merely poor: the fit lost to the k=0 null, which is
+            # only reachable by failing to optimize, since G = 0 reproduces it exactly.
+            cfg.lr_G = 4.0 * cfg.lr_G
         losses, n_iter, converged, clip_hit = run_fit(state, data, cfg)
 
         self.loss_ = np.asarray(losses)
