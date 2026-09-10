@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ["SimulatedData", "simulate_nb_seminmf"]
+__all__ = ["SimulatedData", "draw_nb_counts", "simulate_nb_seminmf"]
 
 
 @dataclass
@@ -127,7 +127,6 @@ def simulate_nb_seminmf(
         if sd > 0:
             G[:, j] *= signal_strength / sd
 
-    eta = a[:, None] + b[None, :]
     Z = gamma = batch = None
     if n_batches >= 2:
         batch = rng.integers(n_batches, size=n)
@@ -135,13 +134,42 @@ def simulate_nb_seminmf(
         gamma = np.zeros((p, n_batches - 1))
         affected = rng.random(p) < 0.3
         gamma[affected] = rng.normal(0.0, batch_strength, size=(int(affected.sum()), n_batches - 1))
-        eta = eta + gamma @ Z.T
-    if k > 0:
-        eta = eta + F @ G.T
 
+    X = draw_nb_counts(a, b, theta, F, G, Z=Z, gamma=gamma, rng=rng)
+
+    return SimulatedData(X=X, F=F, G=G, a=a, b=b, theta=theta, Z=Z, gamma=gamma, batch=batch)
+
+
+def draw_nb_counts(
+    a: np.ndarray,
+    b: np.ndarray,
+    theta: np.ndarray,
+    F: np.ndarray,
+    G: np.ndarray,
+    *,
+    Z: np.ndarray | None = None,
+    gamma: np.ndarray | None = None,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Draw ``X ~ NB(mu, theta)`` from ``log mu = a + b + Z gamma^T + F G^T``.
+
+    The generative final step of :func:`simulate_nb_seminmf`, factored out so a caller
+    building non-uniform cohort structure (donor-varying ``b``/``G``/``Z`` sharing one
+    fixed ``a``/``theta``/``F`` across many draws — the case ``simulate_nb_seminmf``
+    itself does not support, since it redraws ``a``/``theta`` fresh every call even with
+    ``F_fixed``) can reuse the exact same NB draw rather than reimplementing it.
+
+    ``a``: (p,), ``b``: (n,), ``theta``: (p,), ``F``: (p, k), ``G``: (n, k),
+    ``Z``: (n, q) or None, ``gamma``: (p, q) or None matching ``Z``.
+    """
+    eta = a[:, None] + b[None, :]
+    if Z is not None:
+        if gamma is None:
+            raise ValueError("Z given without gamma")
+        eta = eta + gamma @ Z.T
+    if F.shape[1] > 0:
+        eta = eta + F @ G.T
     eta = np.clip(eta, -30.0, 12.0)  # keep counts finite and simulation cheap
     mu = np.exp(eta)
     lam = rng.gamma(shape=theta[:, None], scale=mu / theta[:, None])
-    X = rng.poisson(lam).astype(np.int64)
-
-    return SimulatedData(X=X, F=F, G=G, a=a, b=b, theta=theta, Z=Z, gamma=gamma, batch=batch)
+    return rng.poisson(lam).astype(np.int64)
