@@ -3,9 +3,9 @@
   "cuda": true,
   "quick": false,
   "exposure": {
-    "recovery_offset": 0.922,
-    "recovery_fit": 0.895,
-    "cross_agreement": 0.903,
-    "b_agreement": 0.946
+    "recovery_offset": 0.949,
+    "recovery_fit": 0.955,
+    "cross_agreement": 0.994,
+    "b_agreement": 0.91
   }
 }

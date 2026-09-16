@@ -8,10 +8,10 @@
       2328
     ],
     "ours": {
-      "wall_s": 17.2,
-      "dev_expl": -0.0091,
-      "n_iter": 500,
-      "peak_gpu_mb": 142.9
+      "wall_s": 18.3,
+      "dev_expl": 0.0161,
+      "n_iter": 501,
+      "peak_gpu_mb": 143.1
     },
     "rotation_stability": {
       "mean": 1.0,
@@ -24,10 +24,11 @@
     },
     "nmf": {
       "wall_s": 0.2,
-      "dev_expl": 0.0491
+      "dev_expl": 0.0649
     },
     "glmpca": {
-      "error": "ModuleNotFoundError(\"No module named 'statsmodels'\")"
+      "wall_s": 483.1,
+      "dev_expl": -0.3455
     }
   }
 }

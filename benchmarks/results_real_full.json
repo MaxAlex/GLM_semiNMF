@@ -8,10 +8,10 @@
       6583
     ],
     "ours": {
-      "wall_s": 83.7,
-      "dev_expl": -0.0112,
-      "n_iter": 500,
-      "peak_gpu_mb": 701.9
+      "wall_s": 86.4,
+      "dev_expl": 0.0089,
+      "n_iter": 501,
+      "peak_gpu_mb": 702.4
     },
     "rotation_stability": {
       "mean": 1.0,
@@ -30,8 +30,8 @@
       ]
     },
     "nmf": {
-      "wall_s": 1.2,
-      "dev_expl": 0.0214
+      "wall_s": 1.3,
+      "dev_expl": 0.0423
     },
     "glmpca": {
       "skipped": "matrix too large for the dense glmpca reference; see --quick run"

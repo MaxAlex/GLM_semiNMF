@@ -8,44 +8,44 @@
       "n": 5000,
       "k": 10,
       "device": "auto",
-      "wall_s": 23.9,
-      "peak_gpu_mb": 197.4,
-      "n_iter": 500,
-      "converged": false,
-      "dev_expl": 0.339
+      "wall_s": 9.0,
+      "peak_gpu_mb": 197.6,
+      "n_iter": 162,
+      "converged": true,
+      "dev_expl": 0.612
     },
     {
       "p": 3000,
       "n": 20000,
       "k": 10,
       "device": "auto",
-      "wall_s": 244.9,
-      "peak_gpu_mb": 1225.6,
-      "n_iter": 500,
-      "converged": false,
-      "dev_expl": 0.47
+      "wall_s": 235.2,
+      "peak_gpu_mb": 1226.6,
+      "n_iter": 480,
+      "converged": true,
+      "dev_expl": 0.516
     },
     {
       "p": 3000,
       "n": 20000,
       "k": 30,
       "device": "auto",
-      "wall_s": 250.4,
-      "peak_gpu_mb": 1233.4,
+      "wall_s": 252.6,
+      "peak_gpu_mb": 1236.6,
       "n_iter": 500,
       "converged": false,
-      "dev_expl": 0.475
+      "dev_expl": 0.462
     },
     {
       "p": 5000,
       "n": 50000,
       "k": 10,
       "device": "auto",
-      "wall_s": 1018.9,
-      "peak_gpu_mb": 1957.5,
+      "wall_s": 1089.8,
+      "peak_gpu_mb": 1959.8,
       "n_iter": 500,
       "converged": false,
-      "dev_expl": 0.455
+      "dev_expl": 0.49
     }
   ]
 }
