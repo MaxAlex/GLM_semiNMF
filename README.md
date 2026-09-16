@@ -30,9 +30,11 @@ log μ_fs = a_f + b_s + (Zγ)_fs + Σ_k F_fk · G_sk
 | `Z`, `γ` | n × q, p × q | given / free | Measured nuisance covariates and their coefficients |
 | `θ` | p | > 0 | Per-feature NB dispersion |
 
-Objective: `NLL(F, G, a, b, γ; θ) + l1_F · ‖F‖₁ + l1_G · Σ G`, minimized by
-block-alternating optimization (Adam per block, proximal soft-threshold for
-the L1 term, method-of-moments dispersion with trend shrinkage).
+Objective: `NLL(F, G, a, b, γ; θ) + l1_F · ‖F‖₁ + l1_G · Σ G + 0.5 · l2_G · Σ G²`,
+with G ≥ 0 and unit-L2 trainable loading columns. A constrained proximal solver
+uses exact L1 and backtracking against this objective. Optional usage L2 defaults
+to zero. Dispersion uses a separate bounded method-of-moments estimating phase.
+See the [optimizer migration notes](docs/OPTIMIZER_CHANGELOG.md).
 
 The `l1_G` term (default `0.005·p`, small relative to the likelihood) is an
 addition beyond the original spec objective, adopted for an identifiability
@@ -41,8 +43,7 @@ reason found empirically: the predictor is invariant under
 baseline free. Unanchored, fitted `G` drifts dense, the orthant constraint
 never binds, and rotational ambiguity partially returns (factor recovery
 drops measurably). The penalty smoothly selects the touch-zero representative
-of each usage column; a per-iteration min-shift canonicalization (analogous
-to the scale fixing) enforces the same convention exactly. Set `l1_G=0.0` to
+of each usage column; a fit-only min-shift canonicalization enforces the same convention exactly. Set `l1_G=0.0` to
 recover the bare spec objective.
 
 ## Why signed F but non-negative G
@@ -51,15 +52,11 @@ recover the bare spec objective.
   suppress features. Forcing non-negative loadings splits one process into an
   elevated component plus a down-weighted "shadow" component, roughly doubling
   the factor count and creating artifactual anticorrelations between usages.
-- **`G ≥ 0` is what makes the factorization identifiable.** With signed `F`
-  alone, `FGᵀ = (FA)(GA⁻ᵀ)ᵀ` for any invertible `A`. Restricting `G` to the
-  non-negative orthant reduces the ambiguity to permutation × positive
-  diagonal (positive monomial matrices are the only invertible maps that
-  preserve the orthant), which also eliminates the sign ambiguity in `F`. The
-  constraint restricts *support*, not dependence: usages remain free to
-  correlate, which downstream covariance-based statistics require.
-- The remaining scale ambiguity is fixed by normalizing columns of `F` to
-  unit L2 norm (scale absorbed into `G`), and factors are ordered by
+- **`G ≥ 0` restricts factor ambiguity** and makes inactive samples meaningful.
+  It does not prove unique identification for arbitrary finite data. Correlated
+  and dense-support factors may still admit alternative decompositions.
+- The remaining scale ambiguity is fixed by constraining columns of `F` to
+  unit L2 norm (initial scale absorbed into `G` before fitting), and factors are ordered by
   descending deviance explained, so factors are directly comparable across
   runs and datasets.
 - The **L1 penalty on `F`** both controls separation divergence (features
@@ -75,8 +72,8 @@ pip install .            # torch, numpy, scipy, pandas
 pip install '.[anndata]' # optional AnnData adapter
 ```
 
-GPU is used automatically when CUDA is available (`device="auto"`); the CPU
-path is exact, not a stub — CPU and GPU agree to float precision.
+GPU is selected when CUDA is available (`device="auto"`). Float64 is the
+correctness default; CPU/GPU comparisons use declared numerical tolerances.
 
 ## Worked example
 
@@ -100,8 +97,8 @@ model = NBGLMSemiNMF(
 model.fit(sim.X)                      # raw integer counts, features x samples
 
 model.F_                  # (p, k) signed loadings, unit-L2 columns
-model.G_                  # (n, k) usages, >= 0, exact zeros after snapping
-model.G_raw_              # (n, k) pre-softplus usages (tie-free, for rank stats)
+model.G_                  # (n, k) physical usages, >= 0, exact boundary zeros
+model.G_raw_              # same as G_ by default; boundary ties are meaningful
 model.deviance_explained_ # vs. intercepts + exposure + covariates null
 model.component_stats_    # per-factor diagnostics (see below)
 
@@ -153,9 +150,21 @@ reinitialized** — a run that produces them is evidence about `k`.
   bit-identical results. CPU and GPU differ in the last float digits.
   Sparse and dense inputs agree bitwise up to the internal densification
   threshold (~5·10⁷ entries), and to float tolerance above it.
-- Loadings are hard-clipped at `|F| ≤ 15` as a separation backstop; a warning
-  at the clip means `l1_F` is too small, not that the clip is doing useful
-  work.
+- Trial steps crossing the factor-contribution safeguard
+  `max(abs(F[:,k])) * max(G[:,k]) > 15` are backtracked. An unresolved safeguard
+  stops the run explicitly; accepted solutions are not silently clipped.
+- `converged_` requires physical KKT residuals ≤ `stationarity_tol` (default
+  1e-3) at the returned checkpoint, with theta fixed. `tol` only detects loss
+  stagnation. Inspect `stop_reason_`, `stationarity_`, and `timed_out_`.
+- `loss_[0]` is the true initial objective; `n_iter_` counts completed updates.
+  `final_objective_` scores the returned best checkpoint. A flat trace or a
+  timeout is not evidence of convergence.
+- `fit(X, F_fixed=F, theta_fixed=theta)` freezes supplied loading values/order
+  and scalar or per-feature dispersion. Transform also freezes intercepts and
+  covariate coefficients. All frozen blocks remain unchanged.
+- `max_seconds` supplies a cooperative deadline; in-flight work and the final
+  audit can overrun it. Optional deviance scoring may be unavailable at timeout.
+  Use the bounded benchmark harness when a hard process cap is needed.
 
 ## Explicitly out of scope
 
@@ -173,5 +182,6 @@ uv sync --group dev
 uv run pytest             # validation suite (spec section 6): factor recovery,
                           # signed recovery, identifiability, exposure
                           # invariance, covariate absorption, separation, ...
-uv run python benchmarks/bench.py   # timing, init/optimizer comparisons
+uv run python benchmarks/bench_optimizer.py --out benchmarks/runs/my_run
+# bounded 500/2000-feature synthetic screen; never overwrites a run tag
 ```

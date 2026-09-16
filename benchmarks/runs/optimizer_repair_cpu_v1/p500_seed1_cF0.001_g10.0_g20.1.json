@@ -1,0 +1,65 @@
+{
+  "config": {
+    "p": 500,
+    "n": 100,
+    "seed": 1,
+    "cF": 0.001,
+    "l1_G": 0.0,
+    "l2_G": 0.1,
+    "threads": 2,
+    "dtype": "float64",
+    "device": "cpu",
+    "max_iter": 500,
+    "seconds": 12.0,
+    "stationarity_tol": 0.001
+  },
+  "torch_version": "2.14.0+cpu",
+  "numpy_version": "2.5.2",
+  "density": 0.2808,
+  "wall_seconds": 12.043428041040897,
+  "peak_cpu_rss_mb": 291.66015625,
+  "peak_gpu_mb": null,
+  "initial_objective": 42765.413134171,
+  "final_objective": 36305.38413806132,
+  "objective_components": {
+    "nll": 35589.619665966864,
+    "loading_l1": 7.348422744856581,
+    "usage_l1": 0.0,
+    "usage_l2": 708.416049349603,
+    "total": 36305.38413806132
+  },
+  "stationarity": {
+    "blocks": {
+      "G": 0.008967676613446551,
+      "F": 2.582565318590241,
+      "a": 0.3631810507830586
+    },
+    "max_residual": 2.582565318590241,
+    "feasibility": 6.661338147750939e-16,
+    "tolerance": 0.001,
+    "finite": true,
+    "max_contribution": 9.132592750838993,
+    "scaled_blocks": {
+      "G": 0.008967676613446551,
+      "F": 2.347786653263855,
+      "a": 0.3631810507830586
+    },
+    "passed": false
+  },
+  "n_iter": 136,
+  "best_iteration": 136,
+  "converged": false,
+  "timed_out": true,
+  "stop_reason": "timeout",
+  "dispersion_status": "fixed",
+  "theta_updates": 0,
+  "zero_usage_fraction": 0.474,
+  "warnings": [
+    "did not converge: timeout after 136 iterations (physical residual 2.58)"
+  ],
+  "phase_seconds": {
+    "initialization": 0.0045589543879032135,
+    "optimization_and_certification": 12.012352345511317,
+    "finalization": 0.02639053761959076
+  }
+}

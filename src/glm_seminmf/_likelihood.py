@@ -45,20 +45,18 @@ def nb_nll(
 ) -> torch.Tensor:
     """Elementwise NB2 negative log-likelihood at linear predictor ``eta``.
 
-    Uses only softplus/logaddexp forms; no raw ``exp`` of the predictor except
-    through the straight-through clamp at ``ETA_CLAMP``.
+    Uses stable softplus forms without clamping the predictor. The backward
+    derivative is the derivative of the reported objective, including tails.
 
     With ``full=False`` the ``lgamma`` terms (constant in ``eta``) are dropped:
     fine inside mean-parameter blocks, wrong for comparing losses across
     dispersion updates — use ``full=True`` for the reported loss trace.
     """
-    eta = st_clamp(eta, -ETA_CLAMP, ETA_CLAMP)
     theta = torch.exp(log_theta)
-    #   -theta * log(theta/(theta+mu)) =  theta * softplus(eta - log_theta)
-    #   -x * log(mu/(theta+mu))        = -x * (eta - logaddexp(log_theta, eta))
-    nll = theta * tf.softplus(eta - log_theta) - x * (
-        eta - torch.logaddexp(log_theta.expand_as(eta), eta)
-    )
+    # This exact stable expression has no straight-through clamp. Both tails
+    # stay differentiable, and x=0 does not require evaluating exp(eta).
+    delta = eta - log_theta
+    nll = theta * tf.softplus(delta) + x * tf.softplus(-delta)
     if full:
         nll = nll - torch.lgamma(x + theta) + torch.lgamma(theta) + torch.lgamma(x + 1.0)
     return nll

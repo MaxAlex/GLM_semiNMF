@@ -33,9 +33,15 @@ def test_signed_recovery():
     approximately correct magnitude. This is what distinguishes the model
     from non-negative factorization."""
     sim = simulate_nb_seminmf(
-        p=300, n=600, k=K, negative_loading_fraction=0.4, random_state=2
+        p=300, n=600, k=K, negative_loading_fraction=0.4, random_state=2,
+        baseline_log_mean=2.0, signal_strength=0.7,
     )
-    m = quick_model(K).fit(sim.X)
+    # Keep suppressed features observable and condition on the generating
+    # nuisance parameters: this tests signed-factor recovery, not MoM bias or
+    # count-total exposure approximation. The low-count/default-nuisance
+    # recovery grid above remains a separate empirical check.
+    m = quick_model(K, dispersion=sim.theta, exposure=sim.b).fit(sim.X)
+    assert m.converged_, m.stationarity_
     corr, cols = match_factors(sim.F, m.F_)
     assert (corr > 0.85).all(), f"signed corr {corr.round(3)}"
 

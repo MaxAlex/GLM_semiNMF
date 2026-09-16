@@ -1,3 +1,12 @@
+> **Optimizer contract revision (2026-09-16):** The original design below is
+> historical where it prescribes post-step F/G rescaling, softplus boundary
+> behavior, loss-only stopping, or tie-free raw usages. The implemented contract
+> in [docs/METHOD.md](docs/METHOD.md) supersedes those provisions: constrained
+> exact-L1 updates, physical stationarity, true initial/best checkpoints,
+> explicit dispersion phases, and unsnapped physical outputs. See
+> [migration notes](docs/OPTIMIZER_CHANGELOG.md) for API changes. The original
+> scale/performance goals and deferred statistical questions remain goals.
+
 # Implementation Spec: NB-GLM Semi-NMF
 
 A negative-binomial generalized linear factor model for overdispersed count matrices, with **signed feature loadings** and **non-negative sample usages**.

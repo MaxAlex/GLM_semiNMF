@@ -1,6 +1,7 @@
 """Spec test 10 (gradient check) plus likelihood-level correctness."""
 
 import numpy as np
+import pytest
 import scipy.stats
 import torch
 
@@ -91,3 +92,14 @@ def test_deviance_zero_at_saturation():
     # deviance grows as mu moves away from x
     worse = nb_deviance(x, x + 2.0, theta)
     assert (worse.numpy() > 0).all()
+
+
+@pytest.mark.parametrize("eta_value", [-200., -31., 31., 200.])
+def test_extreme_predictor_gradient_matches_forward_objective(eta_value):
+    eta = torch.tensor(eta_value, dtype=torch.float64, requires_grad=True)
+    x = torch.tensor(3., dtype=torch.float64)
+    theta = torch.tensor(.5, dtype=torch.float64)
+    nb_nll(x, eta, theta).backward()
+    eps = 1e-4
+    fd = (nb_nll(x, eta.detach()+eps, theta) - nb_nll(x, eta.detach()-eps, theta)) / (2*eps)
+    torch.testing.assert_close(eta.grad, fd, rtol=1e-8, atol=1e-8)

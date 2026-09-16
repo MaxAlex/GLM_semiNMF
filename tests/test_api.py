@@ -29,7 +29,7 @@ def test_attribute_shapes(fitted):
     assert m.b_.shape == (N,)
     assert m.theta_.shape == (P,)
     assert m.gamma_ is None
-    assert m.loss_.ndim == 1 and len(m.loss_) == m.n_iter_
+    assert m.loss_.ndim == 1 and len(m.loss_) == m.n_iter_ + 1
     assert isinstance(m.converged_, bool)
     assert 0.0 < m.deviance_explained_ <= 1.0
 
@@ -45,11 +45,12 @@ def test_G_nonneg_with_exact_zeros(fitted):
     assert (m.G_ == 0).any(), "snap-to-zero should produce exact zeros"
 
 
-def test_G_raw_continuous_tie_free(fitted):
-    """Downstream rank statistics need a tie-free continuous variable."""
+def test_G_raw_matches_physical_usages(fitted):
+    """Direct constrained optimization reports real boundary ties honestly."""
     _, m = fitted
-    vals = m.G_raw_.ravel()
-    assert np.unique(vals).size > 0.99 * vals.size
+    np.testing.assert_array_equal(m.G_raw_, m.G_)
+    np.testing.assert_array_equal(m.G_internal_, m.G_)
+    assert m.export_objective_change_ == 0
 
 
 def test_factors_ordered_by_deviance_explained(fitted):

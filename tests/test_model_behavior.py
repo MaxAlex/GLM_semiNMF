@@ -80,10 +80,10 @@ def test_covariate_absorption():
     assert r > 0.8, f"gamma corr {r:.3f}"
 
 
-def test_separation_bounded_and_warns():
+def test_separation_bounded_and_reports_status():
     """Test 8: a feature structurally zero wherever a factor is active drives
-    its loading to -inf unpenalized; the clip must bound it and warn at
-    lambda = 0."""
+    its loading towards separation. The accepted contribution stays bounded;
+    a deterministic case in test_optimizer checks actual safeguard activation."""
     sim = simulate_nb_seminmf(p=200, n=400, k=3, random_state=8)
     X = sim.X.copy()
     f0 = int(np.argmax(np.abs(sim.F[:, 0]) > 0))
@@ -97,24 +97,43 @@ def test_separation_bounded_and_warns():
     contrib = np.abs(m.F_) * m.G_.max(axis=0, initial=0.0)[None, :]
     assert contrib.max() <= 15.0 * (1 + 1e-4), contrib.max()
     messages = [str(w.message) for w in caught]
-    assert any("clip" in msg for msg in messages), messages
+    # This finite sample need not reach the safeguard with a correct optimizer.
+    # A deterministic diverging G-only case separately tests actual activation.
+    if m.stop_reason_ == "safeguard_hit":
+        assert any("clip" in msg for msg in messages), messages
+        assert not m.converged_
+    elif m.converged_:
+        assert m.stationarity_["passed"]
 
 
-def test_rank_recovery_surplus_factors_flagged():
-    """Test 9: fitting k > k_true leaves surplus factors visibly degenerate /
-    near-zero rather than fragmenting real factors."""
+def test_overcomplete_fit_retains_components_and_recovers_signal():
+    """Overfitting k may split factors; do not silently drop the extra columns.
+
+    Recovery is empirical. Nonnegativity does not guarantee automatic rank
+    selection, so diagnostic flag correctness is tested separately below.
+    """
     k_true = 3
     sim = simulate_nb_seminmf(p=300, n=500, k=k_true, random_state=9)
     m = quick_model(6).fit(sim.X)
-
     corr, _ = match_factors(sim.F, m.F_)
     assert np.abs(corr).mean() > 0.8, f"real factors fragmented: {np.abs(corr).round(3)}"
+    assert m.F_.shape[1] == m.G_.shape[1] == len(m.component_stats_) == 6
+    np.testing.assert_array_equal(m.component_stats_["degenerate"],
+                                  (m.G_ > 0).mean(axis=0) < 1e-3)
 
-    stats = m.component_stats_
-    dev = stats["deviance_explained"].to_numpy()
-    weak = (
-        stats["degenerate"].to_numpy()
-        | (stats["duplicate_of"].to_numpy() >= 0)
-        | (dev < 0.05 * max(dev.max(), 1e-12))
-    )
-    assert weak.sum() >= 6 - k_true - 1, f"surplus not flagged:\n{stats.round(3)}"
+
+def test_known_degenerate_and_duplicate_factors_are_flagged_not_dropped():
+    rng = np.random.default_rng(10)
+    f = rng.normal(size=(12, 1))
+    f /= np.linalg.norm(f)
+    fixed = np.column_stack([f, f, np.zeros_like(f)])
+    x = rng.poisson(3, size=(12, 20))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        m = quick_model(3, dispersion=3., max_iter=100).fit(x, F_fixed=fixed)
+    np.testing.assert_array_equal(m.F_, fixed)
+    assert m.component_stats_.loc[2, "degenerate"]
+    assert m.component_stats_.loc[0, "duplicate_of"] == 1
+    assert m.component_stats_.loc[1, "duplicate_of"] == 0
+    assert any("degenerate or duplicated" in str(w.message) for w in caught)
+    assert m.G_.shape[1] == 3
