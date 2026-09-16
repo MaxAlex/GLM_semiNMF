@@ -105,12 +105,42 @@ coefficient 1e-4. The slope includes the smooth directional derivative and
 the exact change in loading L1. At most 30 trials are made. Failed steps are
 restored; there is no unrelated proximal threshold or hidden Adam schedule.
 
-A factor contribution larger than 15 in absolute value triggers a separation
-safeguard during trial evaluation. Backtracking may find a safe smaller step;
-otherwise fitting returns its best checkpoint with `safeguard_hit`. It does
-not clip an accepted iterate or claim KKT stationarity for a coupled hard-bound
-problem. An initially unsafe state is returned with the same explicit failure;
-it is not silently repaired. The fit reports the maximum contribution.
+## Separation: a divergence trigger, not a bound
+
+`max|F[:,k]| * max(G[:,k])` above 15 arms divergence monitoring. It does not
+constrain the optimizer, reject trial steps, or enter the stationarity test.
+Two facts drive that choice.
+
+Legitimate fits cross the level transiently: the contribution typically rises
+while usages grow to fit the data and before loadings take shape, then falls
+back. Enforcing the level by step rejection also cannot recover from its own
+boundary, because the admissible step length there collapses toward zero while
+backtracking reaches only a bounded number of halvings, so every trial fails
+and the run aborts far from any optimum.
+
+Fitting stops with `safeguard_hit` only when the contribution at least doubles
+over `safeguard_patience` consecutive completed iterations while remaining
+above the trigger. A transient peak and a plateau both fail that test. The
+crossing itself is reported as `safeguard_active` alongside `max_contribution`
+and the predictor range.
+
+Separation in this likelihood saturates rather than diverging numerically:
+improvement from `eta -> -inf` decays exponentially, so a separating factor's
+gradient meets any fixed absolute residual tolerance at a finite usage, and
+tightening the tolerance moves that point further out. Such a fit reports
+`stationary` at a finite contribution. The claim is true at the stated
+tolerance; it is not a claim of identification.
+
+That is also why the contribution level is not itself a separation signal, and
+is reported rather than warned about. Measured on this package's generator, a
+constructed separating factor saturates near 11 while ordinary converged fits
+at p=300, n=500 reach 15-17: the statistic is an extreme-order statistic over
+p*n pairs, and with unit-norm loadings all scale lives in the usages, so its
+level tracks problem size rather than separation. The warned quantity is the
+predictor range instead: entries outside +/-30 are where moment estimation and
+deviance fall back on a clamped mean, so `deviance_explained_` and `theta_`
+are approximate there. Divergence proper is caught by the growth test, which
+is scale free.
 
 ## Physical stationarity
 
@@ -130,8 +160,10 @@ residual = sign(g)*max(abs(g)-lambda,0) where F == 0
 This selects the sphere multiplier from the unit constraint and includes valid
 L1 subgradients at zeros. With lambda=0 it reduces to the tangent gradient.
 The audit also checks a, trainable b, gamma, nonnegativity, loading norms,
-finiteness, predictor range, and factor contribution. Frozen blocks are excluded
-from stationarity conditions and must remain unchanged.
+finiteness, predictor range, and factor contribution. Contribution and
+predictor range are reported, not enforced: neither enters `passed`, because
+the optimizer places no bound on them. Frozen blocks are excluded from
+stationarity conditions and must remain unchanged.
 
 `stationarity_tol` is the maximum absolute residual in each active block,
 default 1e-3. Feasibility tolerance is max(1e-10, 10*compute-dtype epsilon).

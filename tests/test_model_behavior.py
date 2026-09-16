@@ -22,7 +22,14 @@ def test_null_data_explains_nothing():
 
 def test_exposure_invariance():
     """Test 6: scaling a subset of samples' exposure and resampling leaves G
-    approximately unchanged. Catches exposure/offset bugs."""
+    approximately unchanged. Catches exposure/offset bugs.
+
+    Dispersion is held at the generating theta so both fits certify: comparing
+    a converged fit against one still moving measures the optimizer's transient
+    rather than exposure handling, and agreement between two runs that both
+    stopped short is not evidence of invariance either. The exposure model
+    itself is untouched -- both fits still infer offsets from column totals.
+    """
     base = dict(p=300, n=500, k=3, random_state=6)
     sim1 = simulate_nb_seminmf(**base)
 
@@ -37,9 +44,11 @@ def test_exposure_invariance():
     ) / sim2.theta[:, None])
     X2 = rng.poisson(lam).astype(np.int64)
 
-    m1 = quick_model(3).fit(sim1.X)
-    m2 = quick_model(3).fit(X2)
+    m1 = quick_model(3, dispersion=sim1.theta).fit(sim1.X)
+    m2 = quick_model(3, dispersion=sim2.theta).fit(X2)
 
+    assert m1.converged_, (m1.stop_reason_, m1.stationarity_)
+    assert m2.converged_, (m2.stop_reason_, m2.stationarity_)
     corr, cols = match_factors(m1.F_, m2.F_)
     assert np.abs(corr).mean() > 0.85
     for j1, j2 in enumerate(cols):
@@ -95,12 +104,15 @@ def test_separation_bounded_and_reports_status():
     assert np.isfinite(m.F_).all()
     # the factor contribution to the log-mean is bounded by the clip
     contrib = np.abs(m.F_) * m.G_.max(axis=0, initial=0.0)[None, :]
-    assert contrib.max() <= 15.0 * (1 + 1e-4), contrib.max()
+    # The contribution is reported, never clipped: assert the report is honest
+    # rather than asserting a bound the optimizer no longer enforces.
+    assert m.stationarity_["max_contribution"] == pytest.approx(contrib.max())
+    assert m.stationarity_["safeguard_active"] == (contrib.max() > 15.0)
     messages = [str(w.message) for w in caught]
-    # This finite sample need not reach the safeguard with a correct optimizer.
-    # A deterministic diverging G-only case separately tests actual activation.
+    # A finite sample need not diverge. A deterministic separating case in
+    # test_optimizer checks that sustained growth does stop a fit.
     if m.stop_reason_ == "safeguard_hit":
-        assert any("clip" in msg for msg in messages), messages
+        assert any("diverged" in msg for msg in messages), messages
         assert not m.converged_
     elif m.converged_:
         assert m.stationarity_["passed"]

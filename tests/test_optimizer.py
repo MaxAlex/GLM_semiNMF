@@ -7,6 +7,7 @@ import pytest
 import torch
 from scipy.optimize import minimize
 
+import glm_seminmf._fitting as ft
 from glm_seminmf import NBGLMSemiNMF
 from glm_seminmf._fitting import (
     DataSource, FitConfig, FitState, full_objective, objective_components,
@@ -251,17 +252,76 @@ def test_small_joint_fit_certifies_returned_exact_objective():
     assert m.final_objective_ == pytest.approx(independent, abs=1e-9)
 
 
-def test_separation_safeguard_returns_safe_nonstationary_checkpoint():
-    state = FitState(torch.ones(1, 1, dtype=torch.float64),
-                     torch.full((1, 1), 14., dtype=torch.float64),
+def separating_problem():
+    """X=0 for the only feature, whose only loading is negative: the likelihood
+    improves monotonically as the usage grows, with no finite minimizer."""
+    state = FitState(-torch.ones(1, 1, dtype=torch.float64),
+                     torch.zeros(1, 1, dtype=torch.float64),
                      torch.zeros(1, dtype=torch.float64), torch.zeros(1, dtype=torch.float64),
                      None, torch.zeros(1, dtype=torch.float64), False)
-    data = DataSource(np.array([[100000000]]), None, 'cpu', torch.float64, None)
-    result = run_transform(state, data, FitConfig(update_theta=False, max_iter=100))
+    return state, DataSource(np.zeros((1, 1)), None, 'cpu', torch.float64, None)
+
+
+def test_separation_self_limits_at_the_residual_tolerance_and_is_reported():
+    """NB improvement from eta -> -inf saturates exponentially, so an absolute
+    residual tolerance is met at a finite usage. The stationarity claim is real
+    at that tolerance; the large contribution is reported, never clipped."""
+    state, data = separating_problem()
+    result = run_transform(state, data, FitConfig(update_theta=False, max_iter=200))
+    assert result.stop_reason == 'stationary'
+    assert result.stationarity['max_contribution'] == pytest.approx(state.G_raw.item())
+    assert state.G_raw.item() > 5  # ran well past any legitimate starting scale
+    # Tightening the tolerance moves the stopping point further out: this is an
+    # asymptote, not a minimum, which is why a fixed level cannot detect it.
+    state2, data2 = separating_problem()
+    tight = run_transform(state2, data2, FitConfig(update_theta=False, max_iter=200,
+                                                   stationarity_tol=1e-9))
+    assert state2.G_raw.item() > state.G_raw.item() + 1
+
+
+def test_sustained_contribution_growth_stops_the_fit(monkeypatch):
+    """Divergence is detected by sustained growth across iterations. The
+    trigger is lowered and the tolerance tightened so the usage keeps growing
+    instead of meeting the residual test first."""
+    state, data = separating_problem()
+    monkeypatch.setattr(ft, 'CONTRIBUTION_TRIGGER', .5)
+    result = run_transform(state, data, FitConfig(update_theta=False, max_iter=200,
+                                                  stationarity_tol=1e-12,
+                                                  safeguard_patience=3))
     assert result.stop_reason == 'safeguard_hit'
     assert not result.converged
-    assert result.stationarity['max_contribution'] <= 15
+    assert result.stationarity['safeguard_active']
+    event = [e for e in result.history if e['event'] == 'safeguard_divergence']
+    assert len(event) == 1 and event[0]['contribution'] >= 2 * event[0]['from_contribution']
+    assert event[0]['over_iterations'] == 3
     assert result.final_objective <= result.initial_objective
+
+
+def test_transient_overshoot_above_trigger_is_not_fatal(monkeypatch):
+    """Regression for the seed-6 failure: an ordinary fit whose contribution
+    sits above the trigger must still be optimized and certified, not aborted.
+    The trigger is lowered so a small deterministic problem exceeds it."""
+    state, data = problem(covariates=False)
+    state.b_trainable = False
+    monkeypatch.setattr(ft, 'CONTRIBUTION_TRIGGER', 0.05)
+    cfg = FitConfig(lam_G=.1, lam_G2=.7, update_theta=False, max_iter=600,
+                    stationarity_tol=2e-7)
+    result = run_transform(state, data, cfg)
+    assert result.stationarity['max_contribution'] > 0.05
+    assert result.stationarity['safeguard_active']
+    assert result.converged, result
+    assert result.stop_reason == 'stationary'
+
+
+def test_step_does_not_reject_trials_on_contribution_level(monkeypatch):
+    """The level test must not enter the line search: with the trigger below
+    the current state, a step still has to be proposed and accepted."""
+    state, data = problem(covariates=False)
+    monkeypatch.setattr(ft, 'CONTRIBUTION_TRIGGER', 1e-12)
+    before = state.F.clone()
+    assert ft._step(state, data, FitConfig(lam_G=.1), ['G_raw']) == 'accepted'
+    assert ft._step(state, data, FitConfig(lam=.1), ['F', 'a']) == 'accepted'
+    assert not torch.equal(state.F, before)
 
 
 def test_timeout_skips_optional_finalization_and_returns_diagnostics():

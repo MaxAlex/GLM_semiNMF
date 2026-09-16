@@ -150,9 +150,11 @@ reinitialized** — a run that produces them is evidence about `k`.
   bit-identical results. CPU and GPU differ in the last float digits.
   Sparse and dense inputs agree bitwise up to the internal densification
   threshold (~5·10⁷ entries), and to float tolerance above it.
-- Trial steps crossing the factor-contribution safeguard
-  `max(abs(F[:,k])) * max(G[:,k]) > 15` are backtracked. An unresolved safeguard
-  stops the run explicitly; accepted solutions are not silently clipped.
+- The factor contribution `max(abs(F[:,k])) * max(G[:,k])` is never clipped or
+  bounded. Above 15 it arms divergence monitoring and is reported as
+  `stationarity_["safeguard_active"]`; only sustained growth (doubling over
+  `safeguard_patience` iterations) stops a fit, with `safeguard_hit`. Ordinary
+  fits cross that level transiently on the way to a feasible optimum.
 - `converged_` requires physical KKT residuals ≤ `stationarity_tol` (default
   1e-3) at the returned checkpoint, with theta fixed. `tol` only detects loss
   stagnation. Inspect `stop_reason_`, `stationarity_`, and `timed_out_`.

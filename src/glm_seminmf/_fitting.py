@@ -16,7 +16,15 @@ import torch.nn.functional as tf
 from ._dispersion import dispersion_from_moments
 from ._likelihood import ETA_CLAMP, nb_deviance, nb_nll, softplus_inv
 
-F_CLIP = 15.0  # separation safeguard, not an unreported projection
+# Per-factor contribution max|F[:,k]| * max(G[:,k]) at which divergence
+# monitoring arms. Crossing it is reported, never fatal on its own: legitimate
+# fits overshoot this level transiently on their way to a feasible optimum.
+# Fitting fails only on sustained growth (see SAFEGUARD_GROWTH).
+CONTRIBUTION_TRIGGER = 15.0
+# While above the trigger, a contribution that at least doubles over
+# ``safeguard_patience`` completed iterations is treated as separation
+# divergence. A transient peak or a plateau above the trigger is not.
+SAFEGUARD_GROWTH = 2.0
 _CHUNK_ELEMENTS = 32_000_000
 _RESIDENT_ELEMENTS = 200_000_000
 
@@ -124,6 +132,7 @@ class FitConfig:
     update_theta: bool = True
     max_linesearch: int = 30
     initial_step: float = 1.0
+    safeguard_patience: int = 10  # iterations of sustained contribution growth
     deadline: float | None = None
     verbose: bool = False
 
@@ -370,7 +379,11 @@ def stationarity(state, data, cfg, *, transform=False):
     contribution = (state.F.abs().max(dim=0).values * g.max(dim=0).values).max().item() if g.numel() else 0.0
     return dict(blocks=blocks, max_residual=max_residual, feasibility=feasibility,
                 tolerance=cfg.stationarity_tol, finite=finite,
-                max_contribution=contribution, predictor=curvature["predictor_stats"],
+                max_contribution=contribution,
+                # Reported, not a constraint: it never enters `passed`, because
+                # the optimizer no longer restricts the contribution level.
+                safeguard_active=contribution > CONTRIBUTION_TRIGGER,
+                predictor=curvature["predictor_stats"],
                 # Dimensionless reporting only; success uses absolute residuals.
                 scaled_blocks={k: v / (1 + {"F": cfg.lam, "G": cfg.lam_G}.get(k, 0))
                                for k, v in blocks.items()},
@@ -441,7 +454,7 @@ def _step(state, data, cfg, active):
             c = c.max(dim=0, keepdim=True).values  # scalar metric per sphere
         metric[name] = c.clamp(min=1e-6)
     step = cfg.initial_step
-    saw_finite, saw_safeguard = False, False
+    saw_finite = False
     if cfg.max_linesearch == 0:
         return "line_search_failed"
     for _ in range(cfg.max_linesearch):
@@ -457,10 +470,12 @@ def _step(state, data, cfg, active):
             getattr(state, name).copy_(z)
         finite = all(torch.isfinite(getattr(state, n)).all() for n in active)
         saw_finite |= bool(finite)
-        contribution = (state.F.abs().max(dim=0).values * state.G().max(dim=0).values).max().item() if state.F.shape[1] else 0.0
-        if contribution > F_CLIP:
-            saw_safeguard = True
-        elif finite:
+        # No contribution level test here: rejecting a feasible-objective trial
+        # for crossing a fixed level cannot distinguish transient overshoot from
+        # divergence, and once an iterate sits on such a boundary the admissible
+        # step length collapses and backtracking can never succeed. Divergence is
+        # detected across iterations in run_fit instead.
+        if finite:
             change = objective_difference(state, data, cfg, old)
             slope = sum((grad[n].double() * (getattr(state, n) - old[n]).double()).sum().item() for n in active)
             if "F" in active:
@@ -471,7 +486,7 @@ def _step(state, data, cfg, active):
                 return "accepted"
         step *= 0.5
     _restore(state, old)
-    return "safeguard_hit" if saw_safeguard else ("line_search_failed" if saw_finite else "nonfinite")
+    return "line_search_failed" if saw_finite else "nonfinite"
 
 
 @torch.no_grad()
@@ -506,10 +521,12 @@ def run_fit(state, data, cfg, *, transform=False):
     if not transform:
         groups.append((["F"] if state.F_trainable and state.F.numel() else []) +
                       ["a"] + (["gamma"] if state.gamma is not None else []))
+    # Contributions observed since the divergence trigger was last crossed. An
+    # initially armed state is watched, not rejected: it may still be on a
+    # descending path towards a feasible optimum.
+    above = [audit["max_contribution"]] if audit["safeguard_active"] else []
     if not np.isfinite(best) or not audit["finite"]:
         reason = "nonfinite"
-    elif audit["max_contribution"] > F_CLIP:
-        reason = "safeguard_hit"
     else:
         for it in range(cfg.max_iter):
             if _expired(cfg):
@@ -577,6 +594,18 @@ def run_fit(state, data, cfg, *, transform=False):
             if not audit["finite"]:
                 reason = "nonfinite"
                 break
+            if not audit["safeguard_active"]:
+                above.clear()  # back below the trigger: the excursion was transient
+            else:
+                above.append(audit["max_contribution"])
+                del above[:-(cfg.safeguard_patience + 1)]
+                if (len(above) > cfg.safeguard_patience
+                        and above[-1] >= SAFEGUARD_GROWTH * above[0]):
+                    history.append(dict(event="safeguard_divergence", iteration=n_iter,
+                                        contribution=above[-1], from_contribution=above[0],
+                                        over_iterations=cfg.safeguard_patience))
+                    reason = "safeguard_hit"
+                    break
             if stall >= 10 and not theta_active and not audit["passed"]:
                 # Still audit every iteration: stagnation alone is never success.
                 if abs(objective_difference(state, data, cfg, sweep_start)) <= 1e-16:

@@ -23,7 +23,6 @@ import torch
 import torch.nn.functional as tf
 
 from ._fitting import (
-    F_CLIP,
     DataSource,
     FitConfig,
     FitState,
@@ -35,7 +34,7 @@ from ._fitting import (
 )
 from ._init import initialize
 from ._inputs import encode_Z, validate_X
-from ._likelihood import softplus_inv
+from ._likelihood import ETA_CLAMP, softplus_inv
 
 __all__ = ["NBGLMSemiNMF"]
 
@@ -59,8 +58,8 @@ class NBGLMSemiNMF:
         ``0.001 * n`` is a good starting point (an order of magnitude more
         visibly degrades fit and factor recovery). Not optional in spirit: it
         controls separation divergence and strengthens identifiability;
-        ``0.0`` is accepted but will warn if any loading hits the internal
-        hard clip.
+        ``0.0`` is accepted but a separating feature can then drive a factor's
+        contribution to diverge, which stops the fit with ``"safeguard_hit"``.
     l1_G : float or "auto", default "auto"
         Small L1 penalty on usages (sum of G). The linear predictor is
         invariant under ``G_k -> G_k + c`` with ``a -> a - c F_k``, so the
@@ -135,6 +134,10 @@ class NBGLMSemiNMF:
         Actual completed outer iterations and certification of returned state.
     stop_reason_, stationarity_, timed_out_
         Explicit outcome, physical KKT residuals/feasibility, and budget status.
+        ``stationarity_["max_contribution"]`` reports the largest per-factor
+        ``max|F[:,k]| * max(G[:,k])`` and ``safeguard_active`` whether it is
+        above the divergence trigger. Neither constrains the optimizer nor
+        enters ``passed``; only sustained growth stops a fit.
     initial_objective_, final_objective_, objective_components_, history_
         True initial/final objectives, final NLL/penalty components, phase events.
     improved_on_init_, mean_improved_on_init_ : bool
@@ -350,8 +353,23 @@ class NBGLMSemiNMF:
                           f"(physical residual {result.stationarity['max_residual']:.3g})",
                           RuntimeWarning, stacklevel=2)
         if result.stop_reason == "safeguard_hit":
-            warnings.warn("separation contribution clip safeguard reached; returning the best valid "
-                          "checkpoint without claiming a bound-constrained optimum", RuntimeWarning, stacklevel=2)
+            warnings.warn(
+                "factor contribution diverged (sustained growth above the separation trigger); "
+                "this indicates a separating feature/factor, not a tight iteration budget. "
+                "Returning the best checkpoint seen; raise l1_F or reduce n_components",
+                RuntimeWarning, stacklevel=2)
+        outside = result.stationarity["predictor"]["entries_outside_moment_range"]
+        if outside:
+            # The contribution level is not a separation signal: a genuinely
+            # separating factor saturates below it, while ordinary fits at
+            # moderate p*n exceed it. The predictor range is well defined --
+            # beyond it, moment estimation and deviance are computed on a
+            # clamped mean, so the reported fit quality is not exact.
+            warnings.warn(
+                f"{outside} fitted predictor entries lie outside +/-{ETA_CLAMP:g}, where moment "
+                "estimation and deviance use a clamped mean; deviance_explained_ and theta_ are "
+                "approximate there. Inspect stationarity_['predictor'] and component_stats_",
+                RuntimeWarning, stacklevel=2)
         self.compute_dtype_ = str(dtype).removeprefix("torch.")
         self._fit_deadline = cfg.deadline
         self._finalize(state, data)

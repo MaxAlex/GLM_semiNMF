@@ -37,18 +37,22 @@ def worker(config, output):
     import torch
     from glm_seminmf import NBGLMSemiNMF, simulate_nb_seminmf
     torch.set_num_threads(config['threads'])
-    sim = simulate_nb_seminmf(p=config['p'], n=config['n'], k=5,
+    sim = simulate_nb_seminmf(p=config['p'], n=config['n'] + config['n_test'], k=5,
                              baseline_log_mean=-1.5, dispersion=5, random_state=0)
-    x = sp.csc_matrix(sim.X)
+    # Held-out samples exercise transform against the same loadings.
+    train = slice(0, config['n'])
+    test = slice(config['n'], config['n'] + config['n_test'])
+    x = sp.csc_matrix(sim.X[:, train])
+    x_test = sp.csc_matrix(sim.X[:, test])
     # Two starts differ in factors, not merely in an effectively deterministic SVD seed.
     from glm_seminmf._init import initialize
-    f, g, _, _ = initialize(x, sim.b, 5, 'svd', 0)
+    f, g, _, _ = initialize(x, sim.b[train], 5, 'svd', 0)
     rng = np.random.default_rng(config['seed'])
     f = f + rng.normal(0, .001, f.shape)
     g = np.maximum(g + rng.normal(0, .001, g.shape), 0)
     model = NBGLMSemiNMF(5, l1_F=config['cF'] * config['n'],
                         l1_G=config['l1_G'], l2_G=config['l2_G'],
-                        dispersion=sim.theta, exposure=sim.b,
+                        dispersion=sim.theta, exposure=sim.b[train],
                         init=(f, g), dtype=config['dtype'], device=config['device'],
                         max_iter=config['max_iter'], max_seconds=config['seconds'],
                         stationarity_tol=config['stationarity_tol'], random_state=config['seed'])
@@ -62,6 +66,16 @@ def worker(config, output):
     if config['device'] == 'cuda':
         torch.cuda.synchronize()
     elapsed = time.monotonic() - t
+
+    # Transform is timed and certified separately from fit.
+    t = time.monotonic()
+    with warnings.catch_warnings(record=True) as caught_transform:
+        warnings.simplefilter('always')
+        model.transform(x_test, exposure=sim.b[test])
+    if config['device'] == 'cuda':
+        torch.cuda.synchronize()
+    transform_elapsed = time.monotonic() - t
+
     result = dict(config=config, torch_version=torch.__version__, numpy_version=np.__version__,
                   density=x.nnz / (config['p'] * config['n']), wall_seconds=elapsed,
                   peak_cpu_rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
@@ -73,7 +87,17 @@ def worker(config, output):
                   dispersion_status=model.dispersion_status_, theta_updates=model.theta_updates_,
                   zero_usage_fraction=float((model.G_ == 0).mean()),
                   warnings=[str(w.message) for w in caught],
-                  phase_seconds=model.phase_seconds_)
+                  phase_seconds=model.phase_seconds_,
+                  safeguard_active=model.stationarity_['safeguard_active'],
+                  predictor=model.stationarity_['predictor'],
+                  transform=dict(wall_seconds=transform_elapsed,
+                                 n_test=config['n_test'],
+                                 n_iter=model.transform_n_iter_,
+                                 converged=model.transform_converged_,
+                                 stop_reason=model.transform_stop_reason_,
+                                 max_residual=model.transform_stationarity_['max_residual'],
+                                 objective=model.transform_final_objective_,
+                                 warnings=[str(w.message) for w in caught_transform]))
     output.write_text(json.dumps(clean(result), indent=2) + '\n')
 
 
@@ -82,6 +106,7 @@ def main():
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--genes', nargs='+', type=int, default=[500, 2000])
     parser.add_argument('--samples', type=int, default=200)
+    parser.add_argument('--test-samples', type=int, default=100)
     parser.add_argument('--seeds', nargs='+', type=int, default=[0])
     parser.add_argument('--seconds', type=float, default=15)
     parser.add_argument('--max-iter', type=int, default=500)
@@ -107,13 +132,15 @@ def main():
     for p in args.genes:
         for seed in args.seeds:
             for c, l1, l2 in grid:
-                config = dict(p=p,n=args.samples,seed=seed,cF=c,l1_G=l1,l2_G=l2,
+                config = dict(p=p,n=args.samples,n_test=args.test_samples,seed=seed,cF=c,l1_G=l1,l2_G=l2,
                               threads=args.threads,dtype=args.dtype,device=args.device,
                               max_iter=args.max_iter,seconds=args.seconds,stationarity_tol=args.stationarity_tol)
                 path = args.out/f'p{p}_seed{seed}_cF{c}_g1{l1}_g2{l2}.json'
                 proc = ctx.Process(target=worker,args=(config,path))
                 proc.start()
-                proc.join(args.seconds + 30)  # imports/init/final audit get a bounded allowance
+                # imports, init, final audit and the transform solve each get a
+                # bounded allowance on top of the two solver deadlines.
+                proc.join(2 * args.seconds + 60)
                 if proc.is_alive():
                     proc.terminate(); proc.join(5)
                     if proc.is_alive():

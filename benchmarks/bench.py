@@ -1,8 +1,16 @@
-"""Benchmarks (spec section 7): timing/memory scaling, init and optimizer
-comparisons, softplus vs projected G, offset vs fitted exposure, deviance vs
-NMF / GLM-PCA, rotation stability on real data.
+"""Benchmarks (spec section 7): timing/memory scaling, initialization
+comparison, offset vs fitted exposure, deviance vs NMF / GLM-PCA, rotation
+stability on real data.
 
 Run:  uv run --group benchmark python benchmarks/bench.py [--quick] [--out DIR]
+
+Solver correctness, stationarity and the penalty grid live in
+``bench_optimizer.py``. There is only one solver now: the legacy
+``algorithm``/``g_parametrization`` names are deprecated aliases of it, so
+sweeping them here would compare a configuration against itself.
+
+Every fit below reports ``stop_reason_`` and the physical residual alongside
+wall time. A budget exit is an unresolved run, not a result.
 
 Real dataset: 20 Newsgroups document-term counts (domain-neutral, public,
 fetched via scikit-learn on first run).
@@ -72,37 +80,45 @@ def bench_scaling(quick: bool, device: str):
         rows.append(
             dict(p=p, n=n, k=k, device=device, wall_s=round(wall, 1),
                  peak_gpu_mb=round(mem, 1), n_iter=m.n_iter_,
-                 converged=m.converged_, dev_expl=round(m.deviance_explained_, 3))
+                 converged=m.converged_, stop_reason=m.stop_reason_,
+                 max_residual=float(m.stationarity_["max_residual"]),
+                 dtype=m.compute_dtype_, phase_seconds=m.phase_seconds_,
+                 total_seconds=round(m.total_seconds_, 1),
+                 dev_expl=round(m.deviance_explained_, 3))
         )
         print("scaling:", rows[-1])
     return rows
 
 
-def bench_init_and_optimizer(quick: bool, device: str):
-    """Convergence trace + recovery for each init and optimizer (open
-    questions 1-3)."""
+def bench_init(quick: bool, device: str):
+    """Convergence trace + recovery per initialization (spec section 3).
+
+    Compared at equal stationarity: a start that stops at max_iter with a
+    large residual has not been shown to be a worse optimum, only a slower
+    one, so the residual is reported next to the loss.
+    """
     p, n, k = (600, 2000, 6) if quick else (2000, 8000, 8)
     sim = simulate_nb_seminmf(p=p, n=n, k=k, random_state=1)
     lam = 0.001 * n
     out = {"traces": {}, "summary": []}
 
-    combos = [("svd", "adam", "softplus"), ("nmf", "adam", "softplus"),
-              ("random", "adam", "softplus"), ("svd", "lbfgs", "softplus"),
-              ("svd", "adam_joint", "softplus"), ("svd", "adam", "projected")]
-    for init, algo, gp in combos:
-        m = NBGLMSemiNMF(n_components=k, l1_F=lam, init=init, algorithm=algo,
-                         g_parametrization=gp, random_state=0, device=device)
+    for init in ["svd", "nmf", "random"]:
+        m = NBGLMSemiNMF(n_components=k, l1_F=lam, init=init,
+                         random_state=0, device=device)
         wall, _ = _fit_timed(m, sim.X)
         rec = match_mean_abs_corr(sim.F, m.F_)
-        exact_zero_frac = float((m.G_ == 0).mean())
-        out["traces"][f"{init}/{algo}/{gp}"] = list(m.loss_)
+        out["traces"][init] = list(m.loss_)
         out["summary"].append(
-            dict(init=init, algorithm=algo, g_param=gp, wall_s=round(wall, 1),
-                 n_iter=m.n_iter_, converged=m.converged_,
-                 final_loss=round(m.loss_[-1], 1), recovery=round(rec, 3),
-                 G_exact_zero_frac=round(exact_zero_frac, 3))
+            dict(init=init, wall_s=round(wall, 1), n_iter=m.n_iter_,
+                 converged=m.converged_, stop_reason=m.stop_reason_,
+                 max_residual=float(m.stationarity_["max_residual"]),
+                 safeguard_active=bool(m.stationarity_["safeguard_active"]),
+                 initial_objective=round(m.initial_objective_, 1),
+                 final_objective=round(m.final_objective_, 1),
+                 recovery=round(rec, 3),
+                 G_exact_zero_frac=round(float((m.G_ == 0).mean()), 3))
         )
-        print("init/opt:", out["summary"][-1])
+        print("init:", out["summary"][-1])
     return out
 
 
@@ -110,20 +126,27 @@ def bench_exposure(quick: bool, device: str):
     """Open question 5: does fitting b change recovered factors materially?"""
     p, n, k = (600, 2000, 6) if quick else (2000, 8000, 8)
     sim = simulate_nb_seminmf(p=p, n=n, k=k, random_state=2, exposure_sd=0.8)
-    fits = {}
+    fits, walls = {}, {}
     for mode in ["offset", "fit"]:
         m = NBGLMSemiNMF(n_components=k, l1_F=0.001 * n, exposure=mode,
                          random_state=0, device=device)
         wall, _ = _fit_timed(m, sim.X)
         fits[mode] = m
+        walls[mode] = round(wall, 1)
         print(f"exposure={mode}: {wall:.1f}s recovery="
-              f"{match_mean_abs_corr(sim.F, m.F_):.3f} dev_expl={m.deviance_explained_:.3f}")
+              f"{match_mean_abs_corr(sim.F, m.F_):.3f} dev_expl={m.deviance_explained_:.3f} "
+              f"stop={m.stop_reason_} residual={m.stationarity_['max_residual']:.3g}")
     cross = match_mean_abs_corr(fits["offset"].F_, fits["fit"].F_)
     b_corr = float(np.corrcoef(fits["offset"].b_, fits["fit"].b_)[0, 1])
     return dict(
         recovery_offset=round(match_mean_abs_corr(sim.F, fits["offset"].F_), 3),
         recovery_fit=round(match_mean_abs_corr(sim.F, fits["fit"].F_), 3),
         cross_agreement=round(cross, 3), b_agreement=round(b_corr, 3),
+        wall_s={k: v for k, v in walls.items()},
+        # Equal-stationarity caveat: wall times are comparable only when both
+        # modes reached the same residual.
+        stop_reason={k: v.stop_reason_ for k, v in fits.items()},
+        max_residual={k: float(v.stationarity_["max_residual"]) for k, v in fits.items()},
     )
 
 
@@ -151,7 +174,11 @@ def bench_real_data(quick: bool, device: str):
     wall, mem = _fit_timed(m, X)
     dev_ours = m.deviance_explained_
     out["ours"] = dict(wall_s=round(wall, 1), dev_expl=round(dev_ours, 4),
-                       n_iter=m.n_iter_, peak_gpu_mb=round(mem, 1))
+                       n_iter=m.n_iter_, peak_gpu_mb=round(mem, 1),
+                       converged=m.converged_, stop_reason=m.stop_reason_,
+                       max_residual=float(m.stationarity_["max_residual"]),
+                       safeguard_active=bool(m.stationarity_["safeguard_active"]),
+                       total_seconds=round(m.total_seconds_, 1))
     print("ours:", out["ours"])
 
     # rotation stability across seeds (worse on real data than synthetic)
@@ -168,6 +195,12 @@ def bench_real_data(quick: bool, device: str):
         mean=round(float(np.mean(pair_corrs)), 3),
         min=round(float(np.min(pair_corrs)), 3),
         pairs=[round(c, 3) for c in pair_corrs],
+        # Agreement between restarts that all stopped short of stationarity is
+        # not evidence of identification: repeated non-convergence from
+        # near-identical starts looks the same as a recovered optimum.
+        stop_reason=[f.stop_reason_ for f in fits],
+        max_residual=[float(f.stationarity_["max_residual"]) for f in fits],
+        all_certified=all(f.converged_ for f in fits),
     )
     print("rotation stability:", out["rotation_stability"])
 
@@ -245,7 +278,7 @@ def main():
     ap.add_argument("--out", default=str(HERE / "results.json"))
     ap.add_argument(
         "--only", default=None,
-        choices=["scaling", "initopt", "exposure", "real"],
+        choices=["scaling", "init", "exposure", "real"],
     )
     args = ap.parse_args()
     device = args.device
@@ -253,8 +286,8 @@ def main():
     results = {"device": device, "cuda": torch.cuda.is_available(), "quick": args.quick}
     if args.only in (None, "scaling"):
         results["scaling"] = bench_scaling(args.quick, device)
-    if args.only in (None, "initopt"):
-        results["init_optimizer"] = bench_init_and_optimizer(args.quick, device)
+    if args.only in (None, "init"):
+        results["init"] = bench_init(args.quick, device)
     if args.only in (None, "exposure"):
         results["exposure"] = bench_exposure(args.quick, device)
     if args.only in (None, "real"):
