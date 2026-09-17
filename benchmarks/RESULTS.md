@@ -138,15 +138,41 @@ Measured separately on `simulate_nb_seminmf(p=300, n=500, k=3)` at
 Fixed dispersion certified 4 of 4; estimated dispersion failed 2 of 4 and
 needed 1.5-2.6x more iterations where it did succeed. Factor recovery was
 comparable either way (0.91-0.96), so this is a cost in certification, not in
-fit quality. Before optimizing the mean-model step, the dispersion phase is
-the larger target.
+fit quality.
+
+Traced on seed 6, the cause is the estimated theta values themselves, not the
+phase machinery. The phase behaves as designed: it froze cleanly at iteration
+77 with `best_iteration` also 77, so nothing was rewound, and the remaining 923
+iterations were a fixed-theta polish. It froze on `mean_stall`, never on theta
+stability -- `delta_log_theta` across the eight refreshes ran
+8.01, 5.44, 1.63, 0.81, 1.70, 1.15, 2.30, 0.81, oscillating rather than
+approaching the 0.05 freeze tolerance.
+
+The frozen estimate is median-unbiased (median log ratio to the generating
+theta -0.02, 74% of features within 2x) but has a heavy upper tail: its maximum
+is 9707 against a generating maximum of 47.8. Refitting from a clean start at
+that frozen theta reaches only residual 190.9 in 1000 iterations, where the
+generating theta certifies in 334. Since curvature carries theta directly
+(`h = (theta + X) * sigmoid(d) * sigmoid(-d)`), a few grossly overestimated
+features are enough to condition the mean-model problem badly.
+
+So the target is the estimating rule's tail behavior -- bounding, shrinking or
+damping it -- not the freeze policy and not the mean-model step. Evidence is 4
+seeds at one problem size, with the mechanism traced on one; confirm the tail
+diagnosis more widely before redesigning the estimator.
 
 ## Open, with no results yet
 
+- Dispersion estimation: bounding or damping the MoM/trend tail, per the
+  section above. This gates the public-data and exposure comparisons, which
+  have no known theta and so run the path that fails to certify.
 - Second-order acceleration (projected Newton for G, sphere-respecting
   second-order F). Each outer iteration currently costs about 24 data passes:
   ~11 gradient evaluations, ~12 objective-difference evaluations for
-  backtracking, and one full objective.
+  backtracking, and one full objective. Reducing passes and reducing iteration
+  count are separate levers; the well-conditioned settings in the grid already
+  certify in 2-7 s on GPU, so the payoff is concentrated in the weak-usage-
+  penalty settings that need ~1200-1740 iterations.
 - Public-data comparison (20 Newsgroups deviance against NMF and GLM-PCA,
   restart stability) at matched data, noise and scoring definitions. The
   historical numbers below predate certification and are not comparable.
