@@ -1,0 +1,55 @@
+{
+  "device": "auto",
+  "cuda": true,
+  "quick": true,
+  "budget": {
+    "max_iter": 2000,
+    "max_seconds": 600.0
+  },
+  "real": {
+    "shape": [
+      1500,
+      2328
+    ],
+    "ours": {
+      "wall_s": 4.9,
+      "dev_expl": 0.0005,
+      "n_iter": 15,
+      "peak_gpu_mb": 414.0,
+      "converged": true,
+      "stop_reason": "stationary",
+      "max_residual": 0.0005310607050894589,
+      "safeguard_active": false,
+      "total_seconds": 4.9
+    },
+    "rotation_stability": {
+      "mean": 1.0,
+      "min": 1.0,
+      "pairs": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "stop_reason": [
+        "stationary",
+        "stationary",
+        "stationary"
+      ],
+      "max_residual": [
+        0.0005310607050894589,
+        0.0005310607050894589,
+        0.0005310607050894589
+      ],
+      "all_certified": true
+    },
+    "nmf": {
+      "wall_s": 0.1,
+      "dev_expl": 0.0611
+    },
+    "glmpca": {
+      "wall_s": 406.2,
+      "max_iter": 300,
+      "dev_expl": -0.3405
+    }
+  }
+}

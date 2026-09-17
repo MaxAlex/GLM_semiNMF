@@ -1,0 +1,27 @@
+{
+  "device": "auto",
+  "cuda": true,
+  "quick": true,
+  "budget": {
+    "max_iter": 8000,
+    "max_seconds": 900.0
+  },
+  "exposure": {
+    "recovery_offset": 0.939,
+    "recovery_fit": 0.892,
+    "cross_agreement": 0.921,
+    "b_agreement": 0.799,
+    "wall_s": {
+      "offset": 163.5,
+      "fit": 62.1
+    },
+    "stop_reason": {
+      "offset": "line_search_failed",
+      "fit": "line_search_failed"
+    },
+    "max_residual": {
+      "offset": 0.01153329557183369,
+      "fit": 0.001344688450089393
+    }
+  }
+}

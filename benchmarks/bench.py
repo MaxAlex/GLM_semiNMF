@@ -63,7 +63,7 @@ def match_mean_abs_corr(F1, F2) -> float:
 # ----------------------------------------------------------------- benchmarks
 
 
-def bench_scaling(quick: bool, device: str):
+def bench_scaling(quick: bool, device: str, budget: dict):
     rows = []
     grid = [
         (1000, 5000, 10),
@@ -75,7 +75,7 @@ def bench_scaling(quick: bool, device: str):
         grid = grid[:2]
     for p, n, k in grid:
         sim = simulate_nb_seminmf(p=p, n=n, k=k, random_state=0)
-        m = NBGLMSemiNMF(n_components=k, l1_F=0.001 * n, random_state=0, device=device)
+        m = NBGLMSemiNMF(n_components=k, l1_F=0.001 * n, random_state=0, device=device, **budget)
         wall, mem = _fit_timed(m, sim.X)
         rows.append(
             dict(p=p, n=n, k=k, device=device, wall_s=round(wall, 1),
@@ -90,7 +90,7 @@ def bench_scaling(quick: bool, device: str):
     return rows
 
 
-def bench_init(quick: bool, device: str):
+def bench_init(quick: bool, device: str, budget: dict):
     """Convergence trace + recovery per initialization (spec section 3).
 
     Compared at equal stationarity: a start that stops at max_iter with a
@@ -104,7 +104,7 @@ def bench_init(quick: bool, device: str):
 
     for init in ["svd", "nmf", "random"]:
         m = NBGLMSemiNMF(n_components=k, l1_F=lam, init=init,
-                         random_state=0, device=device)
+                         random_state=0, device=device, **budget)
         wall, _ = _fit_timed(m, sim.X)
         rec = match_mean_abs_corr(sim.F, m.F_)
         out["traces"][init] = list(m.loss_)
@@ -122,14 +122,14 @@ def bench_init(quick: bool, device: str):
     return out
 
 
-def bench_exposure(quick: bool, device: str):
+def bench_exposure(quick: bool, device: str, budget: dict):
     """Open question 5: does fitting b change recovered factors materially?"""
     p, n, k = (600, 2000, 6) if quick else (2000, 8000, 8)
     sim = simulate_nb_seminmf(p=p, n=n, k=k, random_state=2, exposure_sd=0.8)
     fits, walls = {}, {}
     for mode in ["offset", "fit"]:
         m = NBGLMSemiNMF(n_components=k, l1_F=0.001 * n, exposure=mode,
-                         random_state=0, device=device)
+                         random_state=0, device=device, **budget)
         wall, _ = _fit_timed(m, sim.X)
         fits[mode] = m
         walls[mode] = round(wall, 1)
@@ -162,7 +162,7 @@ def load_newsgroups(quick: bool):
     return X[:, keep].astype(np.int64)
 
 
-def bench_real_data(quick: bool, device: str):
+def bench_real_data(quick: bool, device: str, budget: dict, glmpca_max_iter: int = 300):
     X = load_newsgroups(quick)
     p, n = X.shape
     k = 10
@@ -170,7 +170,7 @@ def bench_real_data(quick: bool, device: str):
     print(f"20 Newsgroups: p={p} n={n} nnz_frac={X.nnz/(p*n):.4f}")
     out = {"shape": [p, n]}
 
-    m = NBGLMSemiNMF(n_components=k, l1_F=lam, random_state=0, device=device)
+    m = NBGLMSemiNMF(n_components=k, l1_F=lam, random_state=0, device=device, **budget)
     wall, mem = _fit_timed(m, X)
     dev_ours = m.deviance_explained_
     out["ours"] = dict(wall_s=round(wall, 1), dev_expl=round(dev_ours, 4),
@@ -181,11 +181,26 @@ def bench_real_data(quick: bool, device: str):
                        total_seconds=round(m.total_seconds_, 1))
     print("ours:", out["ours"])
 
-    # rotation stability across seeds (worse on real data than synthetic)
+    # Rotation stability needs genuinely distinct starts. random_state alone
+    # does not give them: with init="svd" the seed only sets the starting
+    # vector for `svds`, which converges to the same subspace, so starts
+    # differ by ~1e-14 relative and match at |corr| = 1.000000. Agreement
+    # between such runs measures determinism, not identification. Perturb the
+    # warm start per replicate instead, as bench_optimizer.py does.
+    from glm_seminmf._init import initialize
+
+    totals = np.maximum(np.asarray(X.sum(axis=0)).ravel(), 1.0)
+    b0 = np.log(totals / np.median(totals))
+    F0, G0, _, _ = initialize(X, b0, k, "svd", 0)
     seeds = range(3 if quick else 5)
-    fits = []
+    fits, start_agreement = [], []
     for s in seeds:
-        ms = NBGLMSemiNMF(n_components=k, l1_F=lam, random_state=s, device=device)
+        rng = np.random.default_rng(s)
+        Fs = F0 + rng.normal(0.0, 0.05 * np.abs(F0).mean(), F0.shape)
+        Gs = np.maximum(G0 + rng.normal(0.0, 0.05 * G0.mean(), G0.shape), 0.0)
+        start_agreement.append(match_mean_abs_corr(F0, Fs))
+        ms = NBGLMSemiNMF(n_components=k, l1_F=lam, init=(Fs, Gs),
+                          random_state=s, device=device, **budget)
         ms.fit(X)
         fits.append(ms)
     pair_corrs = [
@@ -201,6 +216,9 @@ def bench_real_data(quick: bool, device: str):
         stop_reason=[f.stop_reason_ for f in fits],
         max_residual=[float(f.stationarity_["max_residual"]) for f in fits],
         all_certified=all(f.converged_ for f in fits),
+        # How far apart the starts actually were, so the result can be read as
+        # "agreement despite this much perturbation" rather than as a bare 1.0.
+        start_agreement_to_unperturbed=[round(c, 4) for c in start_agreement],
     )
     print("rotation stability:", out["rotation_stability"])
 
@@ -235,10 +253,16 @@ def bench_real_data(quick: bool, device: str):
         from glmpca.glmpca import glmpca
 
         t0 = time.perf_counter()
-        res = glmpca(np.asarray(X.todense()), L=k, fam="nb", verbose=False)
+        # Bound the reference the same way ours is bounded, and record the
+        # bound: an unbounded baseline against a budgeted fit is not a
+        # comparison. glmpca has no stationarity report of its own, so its
+        # iteration cap is the only budget statement available for it.
+        ctl = {"maxIter": glmpca_max_iter, "eps": 1e-4}
+        res = glmpca(np.asarray(X.todense()), L=k, fam="nb", ctl=ctl, verbose=False)
         mu_g = np.exp(np.clip(_glmpca_eta(res, X), -30, 30))
         out["glmpca"] = dict(
             wall_s=round(time.perf_counter() - t0, 1),
+            max_iter=glmpca_max_iter,
             dev_expl=round(_dev_expl_of_mu(X, mu_g, m.theta_), 4),
         )
     except Exception as e:  # optional dependency; report rather than fail
@@ -274,6 +298,15 @@ def _dev_expl_of_mu(X, mu, theta) -> float:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true")
+    # An unstated budget makes every comparison below a comparison of
+    # transients. Both are recorded in the output for provenance.
+    ap.add_argument("--max-iter", type=int, default=500)
+    ap.add_argument("--max-seconds", type=float, default=None)
+    ap.add_argument("--glmpca-max-iter", type=int, default=300)
+    # The "auto" usage penalty (0.005*p) is calibrated on the synthetic
+    # generator's count scale. On much sparser data it can drive every usage to
+    # zero, which certifies as a degenerate optimum, so it must be settable.
+    ap.add_argument("--l1-G", type=float, default=None)
     ap.add_argument("--device", default="auto")
     ap.add_argument("--out", default=str(HERE / "results.json"))
     ap.add_argument(
@@ -283,15 +316,19 @@ def main():
     args = ap.parse_args()
     device = args.device
 
-    results = {"device": device, "cuda": torch.cuda.is_available(), "quick": args.quick}
+    budget = {"max_iter": args.max_iter, "max_seconds": args.max_seconds}
+    if args.l1_G is not None:
+        budget["l1_G"] = args.l1_G
+    results = {"device": device, "cuda": torch.cuda.is_available(), "quick": args.quick,
+               "budget": budget}
     if args.only in (None, "scaling"):
-        results["scaling"] = bench_scaling(args.quick, device)
+        results["scaling"] = bench_scaling(args.quick, device, budget)
     if args.only in (None, "init"):
-        results["init"] = bench_init(args.quick, device)
+        results["init"] = bench_init(args.quick, device, budget)
     if args.only in (None, "exposure"):
-        results["exposure"] = bench_exposure(args.quick, device)
+        results["exposure"] = bench_exposure(args.quick, device, budget)
     if args.only in (None, "real"):
-        results["real"] = bench_real_data(args.quick, device)
+        results["real"] = bench_real_data(args.quick, device, budget, args.glmpca_max_iter)
 
     Path(args.out).write_text(json.dumps(results, indent=2))
     print("wrote", args.out)

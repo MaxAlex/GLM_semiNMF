@@ -199,14 +199,119 @@ no aggregate and flipped one problem each way at the tolerance boundary, so
 the mechanism is trend quality at the extremes of the mean range, which is a
 separate piece of work.
 
+## Current: initialization, exposure, and public counts
+
+Produced by `bench.py` at `--quick` sizes on GPU, float64, with an explicit
+budget (`--max-iter`, `--max-seconds`) recorded in each artifact. Raw outputs
+in `runs/public_v2/`. These replace the historical `bench.py` sections; the
+optimizer-comparison sweep they used to contain is gone, because `algorithm`
+and `g_parametrization` are now aliases of one solver.
+
+### Initialization (p=600, n=2000, k=6, budget 8000 iterations / 900 s)
+
+| init | wall | iters | stop | residual | initial objective | final objective | recovery |
+|---|---|---|---|---|---|---|---|
+| svd | 88.7 s | 709 | `line_search_failed` | 7.2e-3 | 2,692,209 | 2,428,488 | **0.939** |
+| nmf | 57.3 s | 467 | `line_search_failed` | 2.7e-3 | 3,546,182 | **2,417,762** | 0.921 |
+| random | 25.1 s | 221 | `line_search_failed` | 2.7e-3 | 2,801,482 | 2,577,771 | 0.152 |
+
+None certified, and the budget is not what stopped them: raising it 16x from
+the 500-iteration default moved only svd (500 to 709 iterations, residual
+0.204 to 0.0072) before its line search gave out too. All three converge to a
+residual floor of 2.7e-3 to 7.2e-3 at this problem size, against a 1e-3
+tolerance, which is the step-resolution limit rather than three different
+optima.
+
+Read at roughly matched residuals, the historical "svd wins on every axis"
+does not survive: **nmf reaches the lowest objective** while svd has the best
+factor recovery, and nmf gets there from the worst starting point of the three
+(initial objective 3.55e6 against svd's 2.69e6) -- a comparison the old code
+could not make, because it recorded the first iterate rather than the true
+initialization. Random init remains far worse on recovery.
+
+### Exposure, offset versus fitted b (p=600, n=2000, k=6, exposure_sd=0.8)
+
+| mode | wall | stop | residual | recovery | deviance explained |
+|---|---|---|---|---|---|
+| `"offset"` | 163.5 s | `line_search_failed` | 1.2e-2 | **0.939** | **0.572** |
+| `"fit"` | 62.1 s | `line_search_failed` | 1.3e-3 | 0.892 | 0.387 |
+
+Cross-agreement between the two fits' loadings 0.921; agreement between their
+exposures 0.799. Offset stays the right default, now on stronger grounds than
+the historical run gave: it wins on recovery **and** on deviance explained,
+consistent with fitted `b` absorbing structure that belongs in `G`. The
+`b` agreement of 0.799 also confirms the audited artifact values (0.76 CPU,
+0.91 GPU) rather than the "r > 0.99" the historical table claimed.
+
+The wall times are not comparable: the two runs stopped at residuals 8.6x
+apart, so the historical "fitting b doubles wall time" is not reproduced and
+not contradicted either -- it is unmeasured at equal stationarity.
+
+### 20 Newsgroups (p=1500, n=2328, 2.45% nonzero, mean count 0.044, k=10)
+
+**The default usage penalty collapses this fit.** `l1_G="auto"` is `0.005*p`,
+here 7.5, and at that strength every usage goes to zero: all 10 factors
+degenerate, `G == 0` on 100% of entries, deviance explained 0.0005. The fit
+certifies `stationary` in 15 iterations, correctly -- at `G = 0` the usage
+penalty's gradient exceeds the likelihood's pull on counts this sparse, so
+zero satisfies the KKT conditions for every entry. The diagnostics catch it
+(10/10 degenerate flags and a warning), and the `0.005*p` heuristic is simply
+calibrated on the synthetic generator's count scale, which is roughly 20x
+denser than this.
+
+The same conditioning window as the synthetic grid appears on real data:
+
+| `l1_G` | stop | iters | residual | deviance explained | `G == 0` | degenerate |
+|---|---|---|---|---|---|---|
+| 7.5 (`"auto"`) | stationary | 15 | 5.3e-4 | 0.0005 | 1.000 | 10/10 |
+| 1.0 | stationary | 1223 | 9.5e-4 | **0.1492** | 0.969 | 0 |
+| 0.25 | timeout | 1099 | 190 | unresolved | 0.831 | 0 |
+| 0.05 | timeout | 898 | 1.1e3 | unresolved | 0.381 | 0 |
+
+Too strong certifies an empty model; too weak cannot certify at all. No
+default is changed on this evidence -- it is one dataset -- but the heuristic's
+documented premise that the penalty is "small relative to the likelihood" does
+not hold at this count scale.
+
+At `l1_G = 1.0`, where the model is alive and certified:
+
+| method | budget | wall | deviance explained |
+|---|---|---|---|
+| ours | 1223 iters, `stationary`, residual 9.4e-4 | 336 s | **0.1492** |
+| NMF (sklearn, `nndsvda`) | 400 iters | 0.2 s | -0.0227 |
+| GLM-PCA (`fam="nb"`) | 300 iters | 441 s | -0.4709 |
+
+Both baselines score below the intercepts-plus-exposure null. **Treat that
+comparison as provisional**, for a reason visible in the artifacts: the
+baselines' deviance is computed with *our* fitted `theta`, so the identical
+NMF fit scored +0.0611 against the degenerate model's theta and -0.0227
+against this one. A sound baseline comparison needs a common, model-independent
+dispersion, which is a scoring definition this harness does not yet have.
+GLM-PCA's predictor is also reconstructed from its returned factors and
+loadings by an assumed convention (`_glmpca_eta`), which is unverified.
+
+**Restart stability, measured properly, is 0.91 and not 1.0.** Varying
+`random_state` alone reports a perfect 1.0, but that is determinism, not
+identification: with `init="svd"` the seed only sets the starting vector for
+`svds`, which converges to the same subspace, so the starts differ by ~1e-14
+relative and match at |corr| = 1.000000. Perturbing the warm start instead --
+enough to move it to 0.9998 agreement with the unperturbed init, a 0.02%
+nudge -- gives pairwise loading agreement of 0.866, 1.000, 0.867 (mean 0.911)
+with all three replicates certified. So this dataset has at least two distinct
+certified stationary points whose loadings differ materially, which a
+deterministic-restart test cannot see.
+
 ## Open, with no results yet
 
 - Trend quality at the extremes of the mean range, the one dispersion
   mechanism the estimator fix did not address (p=600 seed 12 above).
-- Public-data and exposure comparisons, which have no known theta. The
-  estimated-dispersion path now certifies 12/16 synthetic problems rather than
-  10/16, so these are no longer blocked, but they should report stop reasons
-  and residuals per fit rather than assuming certification.
+- A model-independent dispersion for scoring baselines, without which the
+  NMF and GLM-PCA comparison above cannot be read as a baseline comparison.
+  Verifying the GLM-PCA predictor reconstruction belongs with it.
+- Whether an absolute `stationarity_tol` is the right standard. It does not
+  scale with `p*n`, and the residual floor the line search reaches does: 1e-3
+  is met at p=300/n=500 but not at p=600/n=2000, where all three
+  initializations stall at 2.7e-3 to 7.2e-3.
 - Second-order acceleration (projected Newton for G, sphere-respecting
   second-order F). Each outer iteration currently costs about 24 data passes:
   ~11 gradient evaluations, ~12 objective-difference evaluations for
@@ -240,6 +345,10 @@ contradicted or invalidated:
 - The GPU sections were recorded as pending after the container lost GPU
   access. GPU access was restored on 2026-09-16 and the current sections above
   supersede them.
+- "svd wins on every axis (speed, loss, recovery)" is not reproduced: read at
+  matched residuals, nmf reaches the lower objective (see the current
+  initialization section). Its restart-stability figures also varied only
+  `random_state`, which with `init="svd"` does not produce distinct starts.
 - A saved artifact reported 235.2 s for p=3000, n=20000, k=10, which does not
   support the claim elsewhere that the target already ran well under a minute;
   the measurement above shows the target is missed by a wider margin once
