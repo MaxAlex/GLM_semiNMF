@@ -187,7 +187,14 @@ Restoration is an event in `history_`, not a fake iteration. `final_objective_`
 refers to the returned state and can differ from the last trace entry.
 
 For estimated dispersion, retain MoM residual estimation and existing feature,
-shared, or trend shrinkage. An initial estimate is followed by refreshes every
+shared, or trend shrinkage. In `trend` mode the shrinkage weight combines the
+count-based weight with a resolvable-excess weight `z^2/(z^2+1)` for
+`z = max((ssr - s_mu)/sqrt(2*s_mu2), 0)`, and only features with positive
+variance excess are fitted to the trend. A feature whose residual spread sits
+at or below its Poisson expectation has a moment estimate outside the
+parameter space; it takes the trend rather than the alpha clamp floor, which
+would otherwise make it theta ~ 1e4 and, since curvature carries theta
+directly, badly condition the mean-model problem. An initial estimate is followed by refreshes every
 10 iterations, at most 15 refreshes. Freeze on a small log-theta change (<0.05),
 three small loss changes, the refresh cap, or halfway through the iteration
 budget to leave a fixed-theta finish. On freezing, restore the best complete

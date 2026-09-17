@@ -24,11 +24,12 @@ def test_exposure_invariance():
     """Test 6: scaling a subset of samples' exposure and resampling leaves G
     approximately unchanged. Catches exposure/offset bugs.
 
-    Dispersion is held at the generating theta so both fits certify: comparing
-    a converged fit against one still moving measures the optimizer's transient
-    rather than exposure handling, and agreement between two runs that both
-    stopped short is not evidence of invariance either. The exposure model
-    itself is untouched -- both fits still infer offsets from column totals.
+    Both fits must certify before their factors are compared: a converged fit
+    against one still moving measures the optimizer's transient rather than
+    exposure handling, and agreement between two runs that both stopped short
+    is not evidence of invariance either. This ran on the default estimated
+    dispersion only after the moment estimator stopped sending boundary
+    features to the alpha floor (see test_dispersion.py).
     """
     base = dict(p=300, n=500, k=3, random_state=6)
     sim1 = simulate_nb_seminmf(**base)
@@ -44,8 +45,8 @@ def test_exposure_invariance():
     ) / sim2.theta[:, None])
     X2 = rng.poisson(lam).astype(np.int64)
 
-    m1 = quick_model(3, dispersion=sim1.theta).fit(sim1.X)
-    m2 = quick_model(3, dispersion=sim2.theta).fit(X2)
+    m1 = quick_model(3).fit(sim1.X)
+    m2 = quick_model(3).fit(X2)
 
     assert m1.converged_, (m1.stop_reason_, m1.stationarity_)
     assert m2.converged_, (m2.stop_reason_, m2.stationarity_)

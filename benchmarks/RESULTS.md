@@ -156,16 +156,57 @@ generating theta certifies in 334. Since curvature carries theta directly
 (`h = (theta + X) * sigmoid(d) * sigmoid(-d)`), a few grossly overestimated
 features are enough to condition the mean-model problem badly.
 
-So the target is the estimating rule's tail behavior -- bounding, shrinking or
-damping it -- not the freeze policy and not the mean-model step. Evidence is 4
-seeds at one problem size, with the mechanism traced on one; confirm the tail
-diagnosis more widely before redesigning the estimator.
+The cause is specific: 17 of 300 features had `ssr - s_mu <= 0`, and those
+same 17 were the ones estimated above theta = 1000 against a true theta near
+13. Their moment estimate is outside the parameter space, so it clamps to the
+alpha floor; the count-based shrink weight does not rescue them because they
+have plenty of counts (median `s_mu` 290, weight 0.85). Underdispersion by
+chance, not near-Poisson behavior.
+
+### Fix: shrink on resolvable excess, not on counts
+
+`_dispersion.py` now sets the shrink weight from how large a feature's variance
+excess is relative to its own sampling scale, `z = (ssr - s_mu) / sqrt(2*s_mu2)`
+clamped at zero, combined multiplicatively with the existing count weight. A
+feature with no resolvable excess takes the trend rather than the floor, and
+features outside the parameter space no longer enter the trend fit. `"feature"`
+mode stays raw by contract.
+
+Measured end to end over 16 problems (p=300/n=500 and p=600/n=300, 8 seeds
+each, `dispersion="trend"`, `max_iter=1000`), old estimator against new:
+
+| | old | new |
+|---|---|---|
+| certified | 10/16 | **12/16** |
+| median RMSE of log theta vs truth | 1.564 | **0.643** |
+| largest theta over all runs | 9775 | 1989 |
+| median factor recovery | 0.937 | 0.938 |
+| total wall time | 1262 s | 976 s |
+
+Theta accuracy improved on 16 of 16 problems, and recovery moved between
+-0.001 and +0.026, so this buys certification and accuracy without trading
+away fit quality. It also restored `test_exposure_invariance` to the default
+estimated-dispersion path, which had needed a fixed-theta workaround.
+
+Four problems still do not certify, all at p=600. Three are near misses that
+end `line_search_failed` or `max_iter` at residuals of 1.1e-3 to 1.3e-2
+against a 1e-3 tolerance -- step resolution, not dispersion. The fourth
+(seed 12, residual 7.26) still carries one theta of 1989 against a true 8.9:
+that feature has the largest mean in the dataset, takes the trend entirely
+(weight 0), and the trend is simply poor at the top of the mean range. A trend
+value bounded to the fitted response range was tried and reverted: it changed
+no aggregate and flipped one problem each way at the tolerance boundary, so
+the mechanism is trend quality at the extremes of the mean range, which is a
+separate piece of work.
 
 ## Open, with no results yet
 
-- Dispersion estimation: bounding or damping the MoM/trend tail, per the
-  section above. This gates the public-data and exposure comparisons, which
-  have no known theta and so run the path that fails to certify.
+- Trend quality at the extremes of the mean range, the one dispersion
+  mechanism the estimator fix did not address (p=600 seed 12 above).
+- Public-data and exposure comparisons, which have no known theta. The
+  estimated-dispersion path now certifies 12/16 synthetic problems rather than
+  10/16, so these are no longer blocked, but they should report stop reasons
+  and residuals per fit rather than assuming certification.
 - Second-order acceleration (projected Newton for G, sphere-respecting
   second-order F). Each outer iteration currently costs about 24 data passes:
   ~11 gradient evaluations, ~12 objective-difference evaluations for
