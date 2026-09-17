@@ -301,6 +301,60 @@ with all three replicates certified. So this dataset has at least two distinct
 certified stationary points whose loadings differ materially, which a
 deterministic-restart test cannot see.
 
+## What `line_search_failed` actually means
+
+Instrumenting the final failing line search (p=600, n=2000, k=6, nmf init,
+group `['F', 'a']`) shows it is not a bad direction, a dispersion problem, or
+an exhausted budget. Across the 30 halvings the displacement shrinks
+monotonically from 3.2e-8 to 1.7e-16, a factor of 5e7, while the slope stays
+pinned at ~1e-11 and changes sign at the third trial. A real directional
+derivative would shrink in proportion to the step. It does not, because at
+that point the step is being formed out of last-bit changes to parameters of
+order one.
+
+The scale explains itself:
+
+| quantity | value |
+|---|---|
+| objective J | 2.42e6 |
+| one ulp of J in float64 | 5.37e-10 |
+| F-block KKT residual | 7.02e-3 |
+| F-block max diagonal curvature | 5.05e6 |
+| implied remaining gap, `residual^2 / (2 * curvature)` | 4.88e-12 |
+| that gap as a relative change in J | 2.02e-18 |
+
+The improvement still available is **110x smaller than one representable
+increment of the objective**. No step can be verified as a decrease because
+there is no decrease large enough to represent. `line_search_failed` is the
+honest report of that, and the fit is at its float64 optimum.
+
+The reason a 7e-3 gradient corresponds to so tiny a gap is curvature. Loadings
+are unit-norm, so all scale lives in the usages and the F-block Hessian
+diagonal accumulates over samples; it reaches 5e6 here. Dividing the residual
+by it gives the distance to the optimum in parameter space:
+
+| p | n | stop | residual | F curvature | residual / curvature |
+|---|---|---|---|---|---|
+| 300 | 500 | `stationary` | 9.8e-4 | 8.4e5 | 1.18e-9 |
+| 600 | 2000 | `line_search_failed` | 7.0e-3 | 5.05e6 | 1.39e-9 |
+| 600 | 2000 | timeout | 0.276 | 8.8e6 | 3.1e-8 |
+| 600 | 300 | max_iter | 6.32 | 4.9e7 | 1.3e-7 |
+
+The first two rows sit essentially the same distance from their optima, 1.2e-9
+and 1.4e-9. One is labelled `stationary` and the other is not, purely because
+`stationarity_tol` is an absolute gradient threshold and the gradient-to-
+distance conversion factor differs between the problems. Curvature spans 8.4e5
+to 4.9e7 across these four fits, so a fixed 1e-3 silently demands a 58x
+stricter parameter-space accuracy on one problem than another.
+
+Two consequences for the remaining work. Second-order steps will not rescue
+these cases -- there is nothing left to step towards. And a certification
+criterion that accounts for curvature (the implied objective gap, or the
+Newton-step norm, which is a parameter distance) would be dimensionally
+correct where an absolute gradient is not. That is not the forbidden move of
+dividing stationarity by the NLL or its constants: gradient over curvature has
+units of parameter distance.
+
 ## Open, with no results yet
 
 - Trend quality at the extremes of the mean range, the one dispersion
@@ -308,10 +362,9 @@ deterministic-restart test cannot see.
 - A model-independent dispersion for scoring baselines, without which the
   NMF and GLM-PCA comparison above cannot be read as a baseline comparison.
   Verifying the GLM-PCA predictor reconstruction belongs with it.
-- Whether an absolute `stationarity_tol` is the right standard. It does not
-  scale with `p*n`, and the residual floor the line search reaches does: 1e-3
-  is met at p=300/n=500 but not at p=600/n=2000, where all three
-  initializations stall at 2.7e-3 to 7.2e-3.
+- A curvature-aware certification criterion, per the section above. The
+  absolute `stationarity_tol` is measurably the wrong yardstick: two fits the
+  same distance from their optima get opposite verdicts.
 - Second-order acceleration (projected Newton for G, sphere-respecting
   second-order F). Each outer iteration currently costs about 24 data passes:
   ~11 gradient evaluations, ~12 objective-difference evaluations for
