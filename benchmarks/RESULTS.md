@@ -312,21 +312,51 @@ derivative would shrink in proportion to the step. It does not, because at
 that point the step is being formed out of last-bit changes to parameters of
 order one.
 
-The scale explains itself:
+The floor is in the F-block step, not in the objective evaluator. Measuring
+`objective_difference` directly -- displacing the smooth `a` block and
+comparing against `g.d + 0.5 d'Hd` -- it resolves changes of 8.9e-21 to
+1.2e-16 across four problems, which is 1e-10 to 1e-5 of one ulp of the
+objective. The remaining gap here is 4.9e-12, comfortably representable. An
+earlier version of this section attributed the failure to objective resolution;
+that was wrong.
 
-| quantity | value |
-|---|---|
-| objective J | 2.42e6 |
-| one ulp of J in float64 | 5.37e-10 |
-| F-block KKT residual | 7.02e-3 |
-| F-block max diagonal curvature | 5.05e6 |
-| implied remaining gap, `residual^2 / (2 * curvature)` | 4.88e-12 |
-| that gap as a relative change in J | 2.02e-18 |
+A per-block breakdown of the failing trials shows what is actually happening:
 
-The improvement still available is **110x smaller than one representable
-increment of the objective**. No step can be verified as a decrease because
-there is no decrease large enough to represent. `line_search_failed` is the
-honest report of that, and the fit is at its float64 optimum.
+| trial | step | slope_F | slope_F_l1 | \|dF\| | \|da\| | cos(dF) | cos(da) |
+|---|---|---|---|---|---|---|---|
+| 0 | 1.0 | +3.4928e-8 | -3.4946e-8 | 5.7e-9 | 3.7e-8 | - | - |
+| 6 | 1.6e-2 | +5.8065e-10 | -5.5027e-10 | 9.0e-11 | 5.7e-10 | 1.0000 | 1.0000 |
+| 18 | 3.8e-6 | +4.8093e-11 | -2.8422e-13 | 2.2e-14 | 1.4e-13 | 0.9985 | 0.9999 |
+| 24 | 6.0e-8 | +3.2230e-11 | -8.5265e-14 | 9.6e-16 | 2.3e-15 | 0.8235 | 0.9651 |
+| 29 | 1.9e-9 | +1.6156e-11 | -8.5265e-14 | 9.9e-16 | 0 | 0.2665 | - |
+
+Two things combine. First, **the composite slope is the residue of a ~2000:1
+cancellation**: at trial 0 the smooth term is +3.4928e-8 and the loading-L1
+term is -3.4946e-8, leaving a net of -1.8e-11. That cancellation is intrinsic
+near the optimum -- it *is* the KKT condition, the smooth gradient balancing
+the L1 subgradient -- but the code forms it as the difference of two separately
+accumulated aggregates, so the digits lost to cancellation are lost for good.
+
+Second, **the F displacement floors at ~1e-15 and randomizes**. `sphere_l1_prox`
+renormalizes each column to unit norm, so its output is quantized at about eps
+relative to entries of order 1/sqrt(p); below that the displacement stops
+tracking the step (9.6e-16 at trial 24, still 9.9e-16 at trial 29) and its
+direction decorrelates (cosine 1.0000 -> 0.2665). The `a` block has neither
+problem: `|da|` halves cleanly to zero and `slope_a` with it.
+
+So the noise floor of the slope, ~1e-11, is the same size as the true remaining
+descent, and the Armijo test cannot tell them apart. `line_search_failed` is
+the honest report of that. The fit is at the optimum its step construction can
+reach, which is not the same as the optimum its objective evaluator could
+resolve.
+
+That distinction matters for any fix: calibrating a tolerance against the
+objective increment's precision would be calibrating against the wrong
+quantity, since that precision is five to nine orders finer than the binding
+one. A more promising, and untested, direction is to accumulate the composite
+slope elementwise -- `(grad + lam * sign(F)) . dF` per entry, with sign flips
+handled exactly -- so the cancellation happens per entry, where it is small,
+instead of between two large sums.
 
 The reason a 7e-3 gradient corresponds to so tiny a gap is curvature. Loadings
 are unit-norm, so all scale lives in the usages and the F-block Hessian
@@ -348,12 +378,17 @@ to 4.9e7 across these four fits, so a fixed 1e-3 silently demands a 58x
 stricter parameter-space accuracy on one problem than another.
 
 Two consequences for the remaining work. Second-order steps will not rescue
-these cases -- there is nothing left to step towards. And a certification
-criterion that accounts for curvature (the implied objective gap, or the
-Newton-step norm, which is a parameter distance) would be dimensionally
-correct where an absolute gradient is not. That is not the forbidden move of
-dividing stationarity by the NLL or its constants: gradient over curvature has
-units of parameter distance.
+these cases as they stand -- the step construction, not the step direction, is
+what runs out. And a certification criterion that accounts for curvature (the
+implied objective gap, or the Newton-step norm, which is a parameter distance)
+would be dimensionally correct where an absolute gradient is not. That is not
+the forbidden move of dividing stationarity by the NLL or its constants:
+gradient over curvature has units of parameter distance.
+
+Ordering for that work: fix the slope accumulation first, since it is cheap and
+would show how much of the 1e-11 floor is recoverable, then recalibrate the
+criterion against whatever floor remains. Calibrating first would bake in a
+floor that may be an artifact.
 
 ## Open, with no results yet
 
@@ -362,9 +397,10 @@ units of parameter distance.
 - A model-independent dispersion for scoring baselines, without which the
   NMF and GLM-PCA comparison above cannot be read as a baseline comparison.
   Verifying the GLM-PCA predictor reconstruction belongs with it.
-- A curvature-aware certification criterion, per the section above. The
-  absolute `stationarity_tol` is measurably the wrong yardstick: two fits the
-  same distance from their optima get opposite verdicts.
+- Cancellation-free accumulation of the composite slope, then a curvature-aware
+  certification criterion calibrated against the floor that remains. The
+  absolute `stationarity_tol` is measurably the wrong yardstick either way: two
+  fits the same distance from their optima get opposite verdicts.
 - Second-order acceleration (projected Newton for G, sphere-respecting
   second-order F). Each outer iteration currently costs about 24 data passes:
   ~11 gradient evaluations, ~12 objective-difference evaluations for
