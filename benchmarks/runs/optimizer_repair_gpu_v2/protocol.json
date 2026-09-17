@@ -1,0 +1,36 @@
+{
+  "arguments": {
+    "out": "benchmarks/runs/optimizer_repair_gpu_v2",
+    "genes": [
+      500,
+      2000
+    ],
+    "samples": 200,
+    "test_samples": 100,
+    "seeds": [
+      0,
+      1
+    ],
+    "seconds": 300.0,
+    "max_iter": 2000,
+    "threads": 4,
+    "dtype": "float64",
+    "device": "cuda",
+    "stationarity_tol": 0.001,
+    "full_grid": true
+  },
+  "revision": "20f857ebd4ab3c14c5e939fe3b26c35c17bce67b",
+  "source_sha256": {
+    "src/glm_seminmf/__init__.py": "7b3edad193e26992ed985b6ff18a8ddbc7b12e97f3831639f0026ec5cc44aa1f",
+    "src/glm_seminmf/_dispersion.py": "48d0b0c39f9fa167d9d4d65c9dc7386914c310b2438946e15b62f40e81465a4a",
+    "src/glm_seminmf/_fitting.py": "27731ffd6e258ded4f9c6dd3caf9313c38d183d3a814d42974ab9222c945ac82",
+    "src/glm_seminmf/_init.py": "b9ad5bbc72f3ac4e22c48f0f621782740d3efb1ea8952420eb86d28466dd3095",
+    "src/glm_seminmf/_inputs.py": "33b9b1c259d2a943ddd2528034b9a4bc7d994d0cff64cc1ca58338381b4fe81b",
+    "src/glm_seminmf/_likelihood.py": "2d7fb8655ad8e48770503fc5b18b2e58501b4e6c8c209aafdc599d647067252d",
+    "src/glm_seminmf/adapters.py": "b8adc0bb0eca694edba735a7332651ce99a1a551beb60acc3cc097066dbab373",
+    "src/glm_seminmf/model.py": "351b9e8dd050fbb6c3255c61be071ef1df85ac828d796ada282014e08a0af675",
+    "src/glm_seminmf/simulate.py": "4bea792e1a7622b5c9d8ea3647b36704fd3382699fc62d071f3791821b26cc17",
+    "benchmarks/bench_optimizer.py": "9144130e329a2458ef70c7bf01b27158e87fa2bde571eca742c3d800110452a3"
+  },
+  "note": "Synthetic fixed-theta screen; unresolved budgets are not successes or biological negatives."
+}

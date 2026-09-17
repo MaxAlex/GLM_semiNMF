@@ -1,0 +1,41 @@
+[
+  {
+    "device": "cuda",
+    "dtype": "float32",
+    "wall_s": 301.0,
+    "total_seconds": 301.0,
+    "n_iter": 54,
+    "stop_reason": "line_search_failed",
+    "converged": false,
+    "max_residual": 1561.497492679162,
+    "s_per_iter": 5.574,
+    "peak_gpu_mb": 3943.4,
+    "dev_expl": 0.7731
+  },
+  {
+    "device": "cuda",
+    "dtype": "float64",
+    "wall_s": 301.5,
+    "total_seconds": 301.5,
+    "n_iter": 54,
+    "stop_reason": "timeout",
+    "converged": false,
+    "max_residual": 2575.071161564061,
+    "s_per_iter": 5.583,
+    "peak_gpu_mb": 3932.7,
+    "dev_expl": NaN
+  },
+  {
+    "device": "cpu",
+    "dtype": "float32",
+    "wall_s": 307.4,
+    "total_seconds": 307.4,
+    "n_iter": 4,
+    "stop_reason": "timeout",
+    "converged": false,
+    "max_residual": 1622526.0233020792,
+    "s_per_iter": 76.855,
+    "peak_gpu_mb": null,
+    "dev_expl": NaN
+  }
+]

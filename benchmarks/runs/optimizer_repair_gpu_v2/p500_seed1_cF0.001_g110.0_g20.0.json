@@ -1,0 +1,86 @@
+{
+  "config": {
+    "p": 500,
+    "n": 200,
+    "n_test": 100,
+    "seed": 1,
+    "cF": 0.001,
+    "l1_G": 10.0,
+    "l2_G": 0.0,
+    "threads": 4,
+    "dtype": "float64",
+    "device": "cuda",
+    "max_iter": 2000,
+    "seconds": 300.0,
+    "stationarity_tol": 0.001
+  },
+  "torch_version": "2.13.0+cu130",
+  "numpy_version": "2.5.2",
+  "density": 0.27726,
+  "wall_seconds": 1.759331727400422,
+  "peak_cpu_rss_mb": 1068.61328125,
+  "peak_gpu_mb": 19.9599609375,
+  "initial_objective": 94689.87772343047,
+  "final_objective": 81018.04421618326,
+  "objective_components": {
+    "nll": 76911.55109557163,
+    "loading_l1": 10.21277419041045,
+    "usage_l1": 4096.280346421226,
+    "usage_l2": 0.0,
+    "total": 81018.04421618326
+  },
+  "stationarity": {
+    "blocks": {
+      "G": 0.00015575851141846897,
+      "F": 0.0008521559110175048,
+      "a": 2.6092390976728552e-05
+    },
+    "max_residual": 0.0008521559110175048,
+    "feasibility": 0.0,
+    "tolerance": 0.001,
+    "finite": true,
+    "max_contribution": 7.369048277214801,
+    "safeguard_active": false,
+    "predictor": {
+      "eta_min": -26.119115053776813,
+      "eta_max": 8.371080219322007,
+      "entries_outside_moment_range": 0
+    },
+    "scaled_blocks": {
+      "G": 1.415986467440627e-05,
+      "F": 0.0007101299258479207,
+      "a": 2.6092390976728552e-05
+    },
+    "passed": true
+  },
+  "n_iter": 58,
+  "best_iteration": 58,
+  "converged": true,
+  "timed_out": false,
+  "stop_reason": "stationary",
+  "dispersion_status": "fixed",
+  "theta_updates": 0,
+  "zero_usage_fraction": 0.926,
+  "warnings": [],
+  "phase_seconds": {
+    "initialization": 0.100630147382617,
+    "optimization_and_certification": 1.6049577184021473,
+    "finalization": 0.05365955829620361
+  },
+  "safeguard_active": false,
+  "predictor": {
+    "eta_min": -26.119115053776813,
+    "eta_max": 8.371080219322007,
+    "entries_outside_moment_range": 0
+  },
+  "transform": {
+    "wall_seconds": 0.10037736780941486,
+    "n_test": 100,
+    "n_iter": 8,
+    "converged": true,
+    "stop_reason": "stationary",
+    "max_residual": 0.0006711104740659835,
+    "objective": 41866.8758361847,
+    "warnings": []
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "config": {
+    "p": 2000,
+    "n": 200,
+    "n_test": 100,
+    "seed": 1,
+    "cF": 0.001,
+    "l1_G": 0.0,
+    "l2_G": 0.0,
+    "threads": 4,
+    "dtype": "float64",
+    "device": "cuda",
+    "max_iter": 2000,
+    "seconds": 300.0,
+    "stationarity_tol": 0.001
+  },
+  "torch_version": "2.13.0+cu130",
+  "numpy_version": "2.5.2",
+  "density": 0.276055,
+  "wall_seconds": 98.45452365651727,
+  "peak_cpu_rss_mb": 1097.6015625,
+  "peak_gpu_mb": 55.23095703125,
+  "initial_objective": 352691.28208248003,
+  "final_objective": 283709.33317107806,
+  "objective_components": {
+    "nll": 283683.35840799625,
+    "loading_l1": 25.974763081814185,
+    "usage_l1": 0.0,
+    "usage_l2": 0.0,
+    "total": 283709.33317107806
+  },
+  "stationarity": {
+    "blocks": {
+      "G": 0.009719897717011983,
+      "F": 20.537859532584633,
+      "a": 0.6551247468765267
+    },
+    "max_residual": 20.537859532584633,
+    "feasibility": 1.1102230246251565e-16,
+    "tolerance": 0.001,
+    "finite": true,
+    "max_contribution": 30.901674826265726,
+    "safeguard_active": true,
+    "predictor": {
+      "eta_min": -30.53422460322277,
+      "eta_max": 10.70491388447432,
+      "entries_outside_moment_range": 3
+    },
+    "scaled_blocks": {
+      "G": 0.009719897717011983,
+      "F": 17.11488294382053,
+      "a": 0.6551247468765267
+    },
+    "passed": false
+  },
+  "n_iter": 2000,
+  "best_iteration": 2000,
+  "converged": false,
+  "timed_out": false,
+  "stop_reason": "max_iter",
+  "dispersion_status": "fixed",
+  "theta_updates": 0,
+  "zero_usage_fraction": 0.011,
+  "warnings": [
+    "did not converge: max_iter after 2000 iterations (physical residual 20.5)",
+    "3 fitted predictor entries lie outside +/-30, where moment estimation and deviance use a clamped mean; deviance_explained_ and theta_ are approximate there. Inspect stationarity_['predictor'] and component_stats_"
+  ],
+  "phase_seconds": {
+    "initialization": 0.10839675180613995,
+    "optimization_and_certification": 97.97579512931406,
+    "finalization": 0.37023522332310677
+  },
+  "safeguard_active": true,
+  "predictor": {
+    "eta_min": -30.53422460322277,
+    "eta_max": 10.70491388447432,
+    "entries_outside_moment_range": 3
+  },
+  "transform": {
+    "wall_seconds": 0.08791407011449337,
+    "n_test": 100,
+    "n_iter": 5,
+    "converged": true,
+    "stop_reason": "stationary",
+    "max_residual": 0.00037313349411580155,
+    "objective": 151353.28616652673,
+    "warnings": []
+  }
+}

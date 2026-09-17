@@ -187,3 +187,9 @@ uv run pytest             # validation suite (spec section 6): factor recovery,
 uv run python benchmarks/bench_optimizer.py --out benchmarks/runs/my_run
 # bounded 500/2000-feature synthetic screen; never overwrites a run tag
 ```
+
+Certified results, and what is still unresolved, are in
+[benchmarks/RESULTS.md](benchmarks/RESULTS.md). Solver behavior and the
+migration from the previous Adam/rescaling optimizer are documented in
+[docs/METHOD.md](docs/METHOD.md) and
+[docs/OPTIMIZER_CHANGELOG.md](docs/OPTIMIZER_CHANGELOG.md).

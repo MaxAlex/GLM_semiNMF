@@ -1,15 +1,190 @@
 # Benchmark results
 
-Produced by `bench.py`. Machine: 12-core CPU, RTX 3060 12GB (CUDA), torch 2.13.
+Two eras of results live in this file. **Current results** come from the
+objective-consistent solver and report physical stationarity of the parameters
+actually returned. **Historical results** at the bottom were produced by the
+superseded Adam/rescaling solver; they are kept for provenance and are not
+corrected in place, because the solver they measured no longer exists.
 
-> **Status: GPU numbers pending.** The container lost GPU access mid-run
-> (NVML error); scaling wall times and the real-data section will be filled
-> in once CUDA is restored. Everything below ran on CPU (`--quick` sizes:
-> p=600, n=2000, k=6, synthetic data from the package generator), which is
-> valid for the *comparative* questions since recovery quality is
-> device-independent.
+A run that exhausted its budget is reported as unresolved. It is never counted
+as a success, and never as evidence that a configuration is bad.
 
-## Open questions from the spec (section 10), resolved empirically
+## Current: bounded synthetic optimizer screen
+
+Produced by `bench_optimizer.py`. Raw artifacts, with source hashes, git
+revision and full per-run diagnostics, are in
+`runs/optimizer_repair_cpu_v2/` and `runs/optimizer_repair_gpu_v2/`.
+
+```
+bench_optimizer.py --out runs/optimizer_repair_<dev>_v2 --full-grid \
+    --seeds 0 1 --seconds 300 --max-iter 2000 --threads 4 --device <dev>
+```
+
+Data: `simulate_nb_seminmf(p, n=200 train + 100 held out, k=5,
+baseline_log_mean=-1.5, dispersion=5)`, float64, dispersion fixed at the
+generating theta, exposure fixed at the generating `b`, two SVD-based starts
+perturbed by N(0, 0.001). Penalty grid from the handoff: `l1_F = cF * n` for
+`cF` in {1e-4, 1e-3, 1e-2} crossed with usage L2 in {0.01, 0.1, 1}, plus two
+controls at `cF=1e-3` — usage L1 = 10, and no usage penalty at all.
+Certification is a maximum absolute physical KKT residual of 1e-3 in every
+active block. Machine: 12-core CPU, RTX 3060 12GB, torch 2.13, CUDA 13.0.
+
+| | CPU | GPU |
+|---|---|---|
+| fits certified | 33/44 | 38/44 |
+| transforms certified | 44/44 | 44/44 |
+| certified fit wall: min / median / max | 3.8 / 34.4 / 151.6 s | 1.8 / 7.3 / 67.3 s |
+| unresolved | 8 timeout, 3 max_iter | 6 max_iter |
+| peak host RSS | 648 MB | 1098 MB |
+| peak GPU memory | n/a | 55 MB |
+
+### The usage penalty, not the loading penalty, sets the conditioning
+
+Median iterations and wall time over certified runs, both devices:
+
+| usage penalty | p | iters | CPU s | GPU s |
+|---|---|---|---|---|
+| L1 = 10 | 500 | 58 | 3.9 | 1.8 |
+| L2 = 1 | 500 | 87 | 5.7 | 2.5 |
+| L2 = 0.1 | 500 | 258 | 17.0 | 7.3 |
+| L2 = 0.01 | 500 | 1742 | 128.6 | 49.7 |
+| none | 500 | — | never certified | never certified |
+| L1 = 10 | 2000 | 73 | 22.2 | 4.1 |
+| L2 = 1 | 2000 | 132 | 36.4 | 7.0 |
+| L2 = 0.1 | 2000 | 195 | 55.2 | 10.6 |
+| L2 = 0.01 | 2000 | ~1190 | timeout at 300 s | 61.5 |
+| none | 2000 | — | never certified | never certified |
+
+Iteration count spans a factor of 30 across the usage penalty and is almost
+flat in `l1_F`: at p=500 with usage L2 = 0.01, `cF` of 1e-4 / 1e-3 / 1e-2 took
+2000 / 1843 / 1641 iterations. Every unresolved run in the grid is a weak or
+absent usage penalty.
+
+The no-usage-penalty control never certifies on either device (residuals 13 to
+52) and is the only configuration whose contribution crosses the separation
+trigger (18.6 at p=500; 21.4-30.9 at p=2000, depending on how far the
+unresolved run got, versus 7.2-12.0 everywhere else). This
+is the identifiability argument in the README showing up as conditioning: the
+predictor is invariant under `G_k -> G_k + c` with `a -> a - c F_k`, so with
+nothing anchoring the usage baseline there is a flat direction, usages stay
+dense (1% exact zeros, against 18-93% elsewhere), and no stationary point is
+reached. It is also the only configuration whose fitted predictor left
+`+/-30`: on GPU, where both p=2000 runs got the full 2000 iterations, 3 entries
+fell outside it in each. That is what the predictor-range warning reports, and
+it is the reason `deviance_explained_` is approximate for those two runs.
+
+Fitting `l1_G="auto"` (`0.005*p`, i.e. 10 at p=2000) is the fastest certified
+configuration in the grid. That is a statement about conditioning, not a
+recommendation to raise the penalty: stronger usage penalties also drive far
+more usages to exactly zero (93% at L1=10 versus 18% at L2=0.01), which is a
+modelling choice, not a free speedup.
+
+### Transform
+
+Transform certified on every run of both grids, in 2-8 iterations and
+0.04-0.27 s for 100 held-out samples. With loadings, intercepts, covariates and
+dispersion fixed and a positive usage penalty the G-only problem is strictly
+convex, and it behaves that way. Transform cost is negligible next to fitting
+and is reported separately in every artifact.
+
+### CPU versus GPU
+
+Restricted to the 32 configurations certified on both devices:
+
+- Wall-time ratio CPU/GPU: min 2.02x, median 2.49x, max 6.02x. The speedup
+  grows with problem size — around 5.2x at p=2000 against 2.2-2.6x at p=500 —
+  so at these sizes the GPU is still substantially launch-latency bound.
+- 31 of 32 took the **identical** number of outer iterations on both devices,
+  and final objectives agree to a maximum relative difference of 6.1e-16.
+  Device choice changes the timing, not the trajectory.
+
+### The p=3000, n=20000, k=10 target is not met
+
+Artifacts in `runs/scaling_target_v2/`. Bounded at 300 s and 2000 iterations,
+with dispersion and exposure fixed and `l1_G="auto"` (the grid's
+fastest-converging setting):
+
+| device | dtype | iters reached | s/iteration | residual | outcome |
+|---|---|---|---|---|---|
+| GPU | float32 | 54 | 5.57 | 1.6e3 | `line_search_failed` |
+| GPU | float64 | 54 | 5.58 | 2.6e3 | timeout |
+| CPU | float32 | 4 | 76.9 | 1.6e6 | timeout |
+
+All three are budget exits; none is a fit. At 5.57 s per outer iteration and
+the 73 iterations this penalty setting needed at p=2000, certifying this size
+on GPU would take roughly 7 minutes — about an order of magnitude past the
+spec's 60-second goal, measured against a certification standard the original
+goal never had. Peak GPU memory was 3.9 GB, comfortably inside 12 GB, so this
+is compute and kernel-launch bound rather than memory bound.
+
+The float32 GPU row is also informative on its own: it ends
+`line_search_failed`, meaning backtracking could no longer resolve a
+sufficient decrease at float32 precision. Tolerances are not relaxed to hide
+that, which is why float64 is the default.
+
+### Dispersion estimation dominates time-to-certification
+
+The grid above holds dispersion fixed, which isolates the mean-model solver.
+Measured separately on `simulate_nb_seminmf(p=300, n=500, k=3)` at
+`max_iter=1000`, comparing `dispersion="trend"` against the generating theta:
+
+| seed | trend | fixed |
+|---|---|---|
+| 6 | `max_iter`, residual 115 | `stationary`, 334 iters, 51 s |
+| 7 | `stationary`, 538 iters, 89 s | `stationary`, 202 iters, 29 s |
+| 9 | `stationary`, 429 iters, 73 s | `stationary`, 280 iters, 34 s |
+| 11 | `max_iter`, residual 104 | `stationary`, 675 iters, 100 s |
+
+Fixed dispersion certified 4 of 4; estimated dispersion failed 2 of 4 and
+needed 1.5-2.6x more iterations where it did succeed. Factor recovery was
+comparable either way (0.91-0.96), so this is a cost in certification, not in
+fit quality. Before optimizing the mean-model step, the dispersion phase is
+the larger target.
+
+## Open, with no results yet
+
+- Second-order acceleration (projected Newton for G, sphere-respecting
+  second-order F). Each outer iteration currently costs about 24 data passes:
+  ~11 gradient evaluations, ~12 objective-difference evaluations for
+  backtracking, and one full objective.
+- Public-data comparison (20 Newsgroups deviance against NMF and GLM-PCA,
+  restart stability) at matched data, noise and scoring definitions. The
+  historical numbers below predate certification and are not comparable.
+- Real-data application screens, which belong downstream of these gates.
+
+---
+
+## Historical (superseded solver, retained for provenance)
+
+Everything below was produced by the Adam/rescaling solver that this work
+replaced, on `bench.py` at `--quick` sizes (p=600, n=2000, k=6). **Its
+`converged` column reflects loss stagnation, not stationarity**, and its
+optimizer comparison is no longer reproducible: `algorithm` and
+`g_parametrization` are now deprecated aliases of a single solver, and
+`bench.py` no longer sweeps them. Several conclusions it drew have since been
+contradicted or invalidated:
+
+- "**Adam wins**" compared three implementations of an objective none of them
+  optimized consistently, and scored them by a loss whose penalties moved
+  between steps.
+- Softplus was kept as the default because `G_raw_` had to be "tie-free for
+  downstream rank statistics". Those distinctions were manufactured; usages
+  are now optimized directly and their boundary ties are reported as real.
+- The GPU sections were recorded as pending after the container lost GPU
+  access. GPU access was restored on 2026-09-16 and the current sections above
+  supersede them.
+- A saved artifact reported 235.2 s for p=3000, n=20000, k=10, which does not
+  support the claim elsewhere that the target already ran well under a minute;
+  the measurement above shows the target is missed by a wider margin once
+  stationarity is required.
+- Real-data artifacts reporting 501 iterations against a 500-iteration budget
+  reflect restoration being appended to the loss trace, which is now a
+  `history_` event rather than an iteration.
+
+<details>
+<summary>Historical tables as originally recorded</summary>
+
+Machine: 12-core CPU, RTX 3060 12GB (CUDA), torch 2.13.
 
 ### 1. Optimizer per block: Adam vs L-BFGS vs IRLS
 
@@ -22,13 +197,8 @@ Produced by `bench.py`. Machine: 12-core CPU, RTX 3060 12GB (CUDA), torch 2.13.
 *recovery = mean matched |loading correlation| against the generating factors
 (Hungarian assignment).
 
-**Adam wins.** L-BFGS with strong-Wolfe line search steps into the
-overflow-clamped region of the NB objective and diverges; with a
-revert-on-non-finite guard it simply stalls at the warm start. It is kept in
-the code behind `algorithm="lbfgs"` for reference but is not competitive as
-implemented. IRLS was not implemented: the `G >= 0` constraint breaks its
-per-block least-squares structure (as the spec anticipated), and Adam's
-performance left little reason to pursue it.
+IRLS was not implemented: the `G >= 0` constraint breaks its per-block
+least-squares structure, as the spec anticipated.
 
 ### 2. Softplus reparametrization vs projected gradient
 
@@ -37,27 +207,16 @@ performance left little reason to pursue it.
 | softplus (default) | 38.1 | 2,433,181 | 0.930 | 0.69 |
 | projected clamp    | 30.0 | 2,429,121 | 0.955 | 0.65 |
 
-Projected gradient is slightly better on this config (lower loss, higher
-recovery, comparable speed). Softplus remains the default because `G_raw_`
-must be tie-free for downstream rank statistics, and the projected
-parametrization's raw values contain exact-zero ties; revisit if the gap
-persists across the full grid (GPU run pending).
-
 ### 3. Joint vs alternating optimization
 
-Joint Adam over all blocks matched alternating on recovery (0.941 vs 0.930)
-and was ~1.4x faster on CPU. Alternating remains the default pending the
-full-size GPU comparison; `algorithm="adam_joint"` is supported and safe.
+Joint Adam matched alternating on recovery (0.941 vs 0.930) and was ~1.4x
+faster on CPU at these sizes.
 
 ### 4. Theta re-estimation schedule
 
-Resolved during development rather than benchmarked: theta is re-estimated
-every 10 outer iterations while the mean model is still moving, then frozen
-after the first convergence stall (with one final refresh), so the
-convergence criterion is judged at fixed dispersion. Re-estimating every
-iteration was visibly unstable (loss spikes at each refresh); the
-freeze-on-stall variant removed the spikes without changing the fitted
-factors materially.
+Resolved during development rather than benchmarked: re-estimating every
+iteration was visibly unstable (loss spikes at each refresh); freezing after a
+stall removed the spikes without changing the fitted factors materially.
 
 ### 5. Exposure: fixed offset vs fitted b
 
@@ -66,12 +225,13 @@ factors materially.
 | `"offset"` (default) | 41.0 | 0.943 | |
 | `"fit"`              | 80.9 | 0.939 | b agrees with offset b at r > 0.99 |
 
-On synthetic data with exposure_sd = 0.8 the two agree on the factors
-(cross-fit matched |corr| ~= 0.99) and on b itself; fitting b doubles wall
-time for no recovery gain. Offset confirmed as the right default. Real-data
-comparison pending GPU.
+> **Audited against the artifact and found wrong.** `results_exposure_cpu.json`
+> records `b_agreement: 0.76` and `cross_agreement: 0.967` for this `--quick`
+> CPU run, not the "r > 0.99" claimed above; `results_exposure_gpu.json` gives
+> 0.91 and 0.994. The recovery figures do match. The claim is left in place as
+> originally written, with this correction alongside it.
 
-## Initialization comparison (spec section 3: "warm-starting matters")
+### Initialization comparison
 
 | init | wall s | outer iters | final loss | recovery |
 |---|---|---|---|---|
@@ -79,32 +239,18 @@ comparison pending GPU.
 | nmf           | 81.6 | 334 | 2,463,888 | 0.887 |
 | random        | 53.0 | 220 | 2,517,002 | 0.411 |
 
-The spec expected nmf to be the most reliable; empirically the truncated SVD
-of row-centered log1p-normalized counts wins on every axis (speed, loss,
-recovery). Random init lands in materially worse optima — warm-starting
-matters more than any optimizer choice tested, confirming the spec's prior.
-
-## Findings that changed the implementation (beyond the spec)
+### Findings that changed the implementation
 
 - **Usage-baseline flatness.** The predictor is invariant under
-  `G_k -> G_k + c, a -> a - c F_k`. Unanchored, fitted G drifts dense, the
-  orthant constraint never binds, and recovery drops (0.55-0.85, chaotic
-  across float-rounding differences). A small L1 on G (`l1_G = 0.005 p`) plus
-  per-iteration min-shift canonicalization anchors the touch-zero
-  representative: recovery rose to 0.88-0.94 on the hard synthetic grid and
-  became stable across thread counts. See README for discussion.
-- **Prox threshold flooring.** Adam-scaled proximal thresholds explode when a
-  weak factor's gradients vanish (v_hat -> 0), wiping columns and
-  destabilizing fits; flooring the denominator at 0.1x its median fixed a
-  bistable failure mode.
+  `G_k -> G_k + c, a -> a - c F_k`. Unanchored, fitted G drifts dense and
+  recovery drops. A small L1 on G (`l1_G = 0.005 p`) anchors the touch-zero
+  representative. *(Independently confirmed by the current grid, where the
+  no-usage-penalty control is the only configuration that never certifies.)*
+- **Prox threshold flooring.** Adam-scaled proximal thresholds exploded when a
+  weak factor's gradients vanished. *(No longer applicable: there is no Adam
+  proximal threshold.)*
 - **Dispersion trend fitting** must avoid `torch.linalg.lstsq` (first call in
   a process differs bitwise from later calls, breaking seed reproducibility);
-  normal equations are used instead.
+  normal equations are used instead. *(Still applicable.)*
 
-## Pending (requires GPU restored)
-
-- Wall time / peak memory vs (n, p, k), including the p=3000, n=20000, k=10
-  target (< 60 s spec budget).
-- 20 Newsgroups real-data section: deviance vs NMF and GLM-PCA at matched k,
-  rotation stability across restarts on real data.
-- CPU-vs-GPU wall-time ratio for the fit and transform paths.
+</details>

@@ -1,0 +1,20 @@
+{
+  "revision": "20f857ebd4ab3c14c5e939fe3b26c35c17bce67b",
+  "script_sha256": "f7ca28e23aea3dc5eea71532973b5e1945e82027b196702a2bcc849ad297bc33",
+  "problem": {
+    "p": 3000,
+    "n": 20000,
+    "k": 10,
+    "dispersion": "fixed at generating theta",
+    "exposure": "fixed at generating b",
+    "l1_F": "0.001*n",
+    "l1_G": "auto (0.005*p = 15)",
+    "l2_G": 0.0
+  },
+  "budget": {
+    "max_iter": 2000,
+    "max_seconds": 300,
+    "threads": 4
+  },
+  "note": "Bounded check of the spec p=3000/n=20000/k=10 under-60s target. All three rows are budget exits, not fits."
+}
