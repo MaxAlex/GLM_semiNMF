@@ -25,6 +25,10 @@ CONTRIBUTION_TRIGGER = 15.0
 # ``safeguard_patience`` completed iterations is treated as separation
 # divergence. A transient peak or a plateau above the trigger is not.
 SAFEGUARD_GROWTH = 2.0
+# A line search that exhausts without improving the objective by more than this
+# many ulps of it has shown that no representable step helps: the iterate is
+# optimal for the arithmetic in use, whatever its absolute gradient reads.
+_NUMERICAL_FLOOR_ULPS = 100.0
 _CHUNK_ELEMENTS = 32_000_000
 _RESIDENT_ELEMENTS = 200_000_000
 
@@ -441,8 +445,14 @@ def objective_difference(state, data, cfg, old):
 
 
 @torch.no_grad()
-def _step(state, data, cfg, active):
-    """One curvature-preconditioned composite step with Armijo backtracking."""
+def _step(state, data, cfg, active, info=None):
+    """One curvature-preconditioned composite step with Armijo backtracking.
+
+    ``info``, when given, collects the best objective change seen across the
+    trials. On exhaustion that is a free certificate of numerical optimality:
+    the trials span the full range of representable step lengths, so if none
+    improved the objective, no step along this direction can.
+    """
     if not active:
         return "accepted"
     grad, curv = physical_derivatives(state, data, cfg)
@@ -454,7 +464,7 @@ def _step(state, data, cfg, active):
             c = c.max(dim=0, keepdim=True).values  # scalar metric per sphere
         metric[name] = c.clamp(min=1e-6)
     step = cfg.initial_step
-    saw_finite = False
+    saw_finite, best_change = False, np.inf
     if cfg.max_linesearch == 0:
         return "line_search_failed"
     for _ in range(cfg.max_linesearch):
@@ -477,6 +487,8 @@ def _step(state, data, cfg, active):
         # detected across iterations in run_fit instead.
         if finite:
             change = objective_difference(state, data, cfg, old)
+            if np.isfinite(change):
+                best_change = min(best_change, change)
             slope = sum((grad[n].double() * (getattr(state, n) - old[n]).double()).sum().item() for n in active)
             if "F" in active:
                 slope += cfg.lam * (state.F.double().abs().sum() - old["F"].double().abs().sum()).item()
@@ -486,6 +498,8 @@ def _step(state, data, cfg, active):
                 return "accepted"
         step *= 0.5
     _restore(state, old)
+    if info is not None:
+        info["best_change"] = best_change
     return "line_search_failed" if saw_finite else "nonfinite"
 
 
@@ -525,6 +539,8 @@ def run_fit(state, data, cfg, *, transform=False):
     # initially armed state is watched, not rejected: it may still be on a
     # descending path towards a feasible optimum.
     above = [audit["max_contribution"]] if audit["safeguard_active"] else []
+    floor = None  # evidence that an exhausted line search sat at the arithmetic's limit
+    failed_group = []
     if not np.isfinite(best) or not audit["finite"]:
         reason = "nonfinite"
     else:
@@ -537,11 +553,12 @@ def run_fit(state, data, cfg, *, transform=False):
                 break
             prev = losses[-1]
             sweep_start = _snapshot(state)
-            status = "accepted"
+            status, probe = "accepted", {}
             for group in groups:
                 for _ in range(cfg.inner_steps):
-                    status = _step(state, data, cfg, group)
+                    status = _step(state, data, cfg, group, probe)
                     if status != "accepted":
+                        failed_group = group
                         break
                 if status != "accepted":
                     break
@@ -553,6 +570,9 @@ def run_fit(state, data, cfg, *, transform=False):
                     best, best_state, best_it = partial, _snapshot(state), n_iter
                     history.append(dict(event="partial_checkpoint", iteration=n_iter,
                                         attempted_iteration=it+1, objective=partial))
+                if status == "line_search_failed" and "best_change" in probe:
+                    floor = dict(objective=partial, best_change=probe["best_change"],
+                                 blocks=[{"G_raw": "G"}.get(n, n) for n in failed_group])
                 reason = status
                 break
             if not transform:
@@ -608,7 +628,13 @@ def run_fit(state, data, cfg, *, transform=False):
                     break
             if stall >= 10 and not theta_active and not audit["passed"]:
                 # Still audit every iteration: stagnation alone is never success.
-                if abs(objective_difference(state, data, cfg, sweep_start)) <= 1e-16:
+                sweep_change = objective_difference(state, data, cfg, sweep_start)
+                if abs(sweep_change) <= 1e-16:
+                    # A complete sweep that moves the objective by less than this
+                    # is the same evidence an exhausted line search gives, over
+                    # every block rather than one group.
+                    floor = dict(objective=loss, best_change=sweep_change,
+                                 blocks=list(audit["blocks"]))
                     reason = "stalled_nonstationary"
                     break
     # The initial state remains a candidate even if every proposal failed.
@@ -620,12 +646,24 @@ def run_fit(state, data, cfg, *, transform=False):
     elif audit["passed"] and not theta_active and reason not in ("nonfinite", "safeguard_hit"):
         reason = "stationary"
     components = objective_components(state, data, cfg.lam, cfg.lam_G, cfg.lam_G2)
+    audit["numerical_floor"] = None
+    if reason in ("line_search_failed", "stalled_nonstationary") and floor is not None and not theta_active:
+        # The certificate applies to the state that produced it, and only if
+        # every block the line search did not touch already meets tolerance.
+        untouched = {n: v for n, v in audit["blocks"].items() if n not in floor["blocks"]}
+        slack = _NUMERICAL_FLOOR_ULPS * torch.finfo(state.F.dtype).eps * max(1.0, abs(components["total"]))
+        if (components["total"] == floor["objective"]
+                and abs(floor["best_change"]) <= slack
+                and all(v <= cfg.stationarity_tol for v in untouched.values())):
+            audit["numerical_floor"] = dict(best_change=floor["best_change"], slack=slack,
+                                            blocks=floor["blocks"])
+            reason = "numerically_stationary"
     final = _snapshot(state)
     _restore(state, initial)
     state.log_theta.copy_(final["log_theta"])
     initial_at_final = full_objective(state, data, cfg.lam, cfg.lam_G, cfg.lam_G2)
     _restore(state, final)
-    return FitResult(losses, n_iter, reason == "stationary", reason, initial_loss,
+    return FitResult(losses, n_iter, reason in ("stationary", "numerically_stationary"), reason, initial_loss,
                      components["total"], best_it, audit, components,
                      phase if not theta_active else "estimating_budget_exit", theta_updates,
                      history, initial_at_final, time.monotonic() - started)

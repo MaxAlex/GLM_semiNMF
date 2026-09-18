@@ -149,8 +149,18 @@ corresponding `transform_*` diagnostics. New constructor options:
 `l2_G`, `stationarity_tol`, `max_seconds`, `inner_steps`, `dtype`. New fit
 arguments: `F_fixed`, `theta_fixed`.
 
-Stop reasons: `stationary`, `max_iter`, `timeout`, `stalled_nonstationary`,
-`line_search_failed`, `nonfinite`, `safeguard_hit`.
+Stop reasons: `stationary`, `numerically_stationary`, `max_iter`, `timeout`,
+`stalled_nonstationary`, `line_search_failed`, `nonfinite`, `safeguard_hit`.
+
+`numerically_stationary` exists because an absolute gradient tolerance is not
+always reachable: on larger problems the step construction runs out of
+precision while the fit is already final. Measured on p=600, n=2000, k=6, a run
+that stopped `line_search_failed` at residual 1.5e-2 accepted **zero** further
+steps when restarted with fresh curvature, and its objective, recovery and
+deviance matched a float32 run that stopped at a residual 10,000x larger. The
+label was wrong, not the fit. The certificate uses the objective changes the
+line search has already computed, so it costs no extra passes, and it is
+refused when any block outside the exhausted group is still above tolerance.
 
 ### Migrating
 

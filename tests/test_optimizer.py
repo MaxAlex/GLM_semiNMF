@@ -179,7 +179,7 @@ def test_best_restore_rechecks_residual_and_counts_iterations(monkeypatch):
     state.a.fill_(.5)
     cfg = FitConfig(update_theta=False, max_iter=1, inner_steps=1)
     original_step = ft._step
-    def worse_step(state, data, cfg, active):
+    def worse_step(state, data, cfg, active, info=None):
         state.a.add_(10)
         return 'accepted'
     monkeypatch.setattr(ft, '_step', worse_step)
@@ -419,3 +419,34 @@ def test_rejected_nonfinite_proposal_restores_parameters(monkeypatch):
     assert not result.converged
     assert torch.equal(state.G_raw, original.G_raw)
     assert torch.equal(state.F, original.F)
+
+
+def test_numerical_floor_certifies_when_no_representable_step_helps():
+    """An exhausted line search whose best trial cannot improve the objective by
+    more than a few ulps has proved the iterate optimal for this arithmetic.
+    float32 reaches that floor at an absolute residual far above any tolerance."""
+    state, data = problem(covariates=False)
+    state32 = FitState(**{n: (v.float() if torch.is_tensor(v) else v)
+                          for n, v in vars(state).items()})
+    state32.b_trainable = False
+    cfg = FitConfig(lam=.3, lam_G=.1, update_theta=False, max_iter=4000,
+                    stationarity_tol=1e-12)  # unreachable in float32
+    result = run_transform(state32, data, cfg)
+    assert result.stop_reason == 'numerically_stationary'
+    assert result.converged
+    floor = result.stationarity['numerical_floor']
+    assert abs(floor['best_change']) <= floor['slack']
+    # The certificate is numerical, not a relaxed tolerance: the residual is
+    # still reported honestly and still exceeds what was asked for.
+    assert result.stationarity['max_residual'] > cfg.stationarity_tol
+    assert not result.stationarity['passed']
+
+
+def test_numerical_floor_is_not_claimed_when_another_block_is_unconverged():
+    """The certificate covers only the block the line search exhausted on."""
+    state, data = problem(covariates=False)
+    cfg = FitConfig(update_theta=False, max_iter=3, max_linesearch=0)
+    result = run_fit(state, data, cfg)
+    assert result.stop_reason == 'line_search_failed'
+    assert not result.converged
+    assert result.stationarity['numerical_floor'] is None

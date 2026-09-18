@@ -410,10 +410,28 @@ four decimals. Stopping early cost nothing and saved 7x the iterations.
 So the residual at which the line search gives out is a poor proxy for how good
 the fit is, and `line_search_failed` near an optimum is closer to a feature
 than a defect. **What is wrong here is the label, not the answer**: `converged_`
-reads False on fits that are numerically final. Fixing the slope accumulation
-and the criterion would correct the reporting and make benchmark tables
-readable; it would not produce better fits, and it is not a reason to pursue
-second-order steps. Scope it as a diagnostics fix.
+read False on fits that are numerically final.
+
+That label is now fixed, without touching the solver. The line search already
+computes the objective change of every trial, so on exhaustion it knows the best
+change any representable step length achieved. When that is within a few ulps of
+the objective, no representable step helps and the iterate is optimal for the
+arithmetic in use; the run reports `numerically_stationary` and sets
+`converged_`. The p=600, n=2000 float64 fit above now certifies, with the
+evidence recorded (best trial change +1.2e-11 against a slack of 5.4e-8, blocks
+`['F', 'a']`). The residual is still reported unchanged at 1.5e-2 and
+`stationarity_['passed']` stays False, so the two notions stay distinguishable.
+Cost: no extra data passes.
+
+The certificate is deliberately conservative and is refused when a block outside
+the exhausted group has not met tolerance. The float32 run is refused for
+exactly that reason -- its `G` residual is 0.0404 against a 1e-3 tolerance, and
+nothing has shown `G` to be at a floor -- even though its fit is as good. The
+same evidence is accepted from a stalled sweep, which covers every block rather
+than one group.
+
+Cancellation-free slope accumulation and a curvature-aware criterion remain
+open, but they would only lower the floor, not improve any fit.
 
 Evidence is one synthetic problem with a matched float64/float32 pair plus the
 continuation test. The 20 Newsgroups fit certified outright, so it never

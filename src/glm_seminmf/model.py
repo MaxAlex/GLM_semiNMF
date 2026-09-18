@@ -132,6 +132,11 @@ class NBGLMSemiNMF:
         final_objective_ reports the returned checkpoint, which may be earlier.
     n_iter_, converged_ : int, bool
         Actual completed outer iterations and certification of returned state.
+        ``converged_`` is True for ``stop_reason_`` of ``"stationary"`` (KKT
+        residuals within ``stationarity_tol``) or ``"numerically_stationary"``
+        (no representable step improves the objective, so the fit is optimal
+        for the compute dtype even though its residual exceeds the tolerance;
+        see ``stationarity_["numerical_floor"]``).
     stop_reason_, stationarity_, timed_out_
         Explicit outcome, physical KKT residuals/feasibility, and budget status.
         ``stationarity_["max_contribution"]`` reports the largest per-factor

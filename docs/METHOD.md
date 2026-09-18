@@ -223,8 +223,21 @@ Results are in `transform_*` diagnostic attributes; fitted attributes are not
 modified. With positive usage L2 and all other parameters fixed, the G-only
 objective is strictly convex. This does not extend to joint F/G fitting.
 
-Outcomes include stationary, max_iter, timeout, stalled_nonstationary,
-line_search_failed, nonfinite, and safeguard_hit. `max_seconds` is cooperative:
+Outcomes include stationary, numerically_stationary, max_iter, timeout,
+stalled_nonstationary, line_search_failed, nonfinite, and safeguard_hit.
+
+`numerically_stationary` certifies a different thing from `stationary` and both
+set `converged_`. A line search that exhausts, or a complete sweep that moves
+the objective by essentially nothing, has tried the full range of representable
+step lengths without finding an improvement: no representable step helps, so the
+iterate is optimal for the arithmetic in use whatever its absolute gradient
+reads. It is claimed only when the best trial change is within
+`_NUMERICAL_FLOOR_ULPS` ulps of the objective, the certified state is the one
+that produced the evidence, and every block outside the exhausted group already
+meets `stationarity_tol`. The residual is still reported unchanged and
+`stationarity_['passed']` stays False; `stationarity_['numerical_floor']`
+carries the evidence. Costs no extra passes -- the line search already computed
+every trial's objective change. `max_seconds` is cooperative:
 initialization, an in-flight tensor/data pass, and final certification can
 exceed it. Optional null/deviance scoring stops when the deadline expires and
 reports unavailable values as NaN, with `finalization_timed_out_`. The benchmark
