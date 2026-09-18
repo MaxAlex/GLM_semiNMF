@@ -29,4 +29,7 @@ packages = ["src/glm_seminmf"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-filterwarnings = ["ignore::DeprecationWarning"]
+# Warnings carry diagnostic content here (non-convergence, degenerate factors,
+# predictor range), so nothing is suppressed wholesale. Narrow any third-party
+# noise to its own module rather than re-adding a blanket ignore.
+filterwarnings = ["default"]

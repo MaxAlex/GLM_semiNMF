@@ -60,6 +60,11 @@ class DataSource:
         self.device, self.dtype = device, dtype
         auto = max(1, _CHUNK_ELEMENTS // max(self.p, 1))
         self.chunk = min(self.n, batch_size if batch_size else auto)
+        # Copy a read-only Z: torch shares the buffer otherwise and warns that
+        # writes would be undefined. Encoded covariate designs are often
+        # read-only views.
+        if Z is not None and not getattr(Z, "flags", np.empty(0).flags).writeable:
+            Z = Z.copy()
         self.Z = None if Z is None else torch.as_tensor(Z, device=device, dtype=dtype)
         self._sparse = sp.issparse(X)
         self._X_host = X

@@ -4,7 +4,8 @@ The optimizer uses physical nonnegative usages, unit-norm trainable loading
 columns, exact loading L1, and backtracking against one fixed-dispersion
 objective. This document supersedes the previous Adam/rescaling method.
 [OPTIMIZER_PLAN.md](OPTIMIZER_PLAN.md) records the motivating review;
-[OPTIMIZER_CHANGELOG.md](OPTIMIZER_CHANGELOG.md) describes migration and validation.
+[OPTIMIZER_CHANGELOG.md](OPTIMIZER_CHANGELOG.md) describes migration and
+validation; [REMAINING_WORK.md](REMAINING_WORK.md) lists what is still open.
 
 ## Objective and constraints
 

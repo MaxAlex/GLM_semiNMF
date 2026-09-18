@@ -46,6 +46,15 @@ drops measurably). The penalty smoothly selects the touch-zero representative
 of each usage column; a fit-only min-shift canonicalization enforces the same convention exactly. Set `l1_G=0.0` to
 recover the bare spec objective.
 
+**Check this penalty on sparse data.** `0.005·p` is calibrated on the count
+scale of the package's generator, and its premise that the penalty is small
+relative to the likelihood can fail badly. On 20 Newsgroups (2.45% nonzero,
+mean count 0.044) it drives every usage to zero: all factors degenerate,
+deviance explained 0.0005, and the fit certifies, correctly, at that degenerate
+optimum. `component_stats_["degenerate"]` and the accompanying warning catch
+it. See [benchmarks/RESULTS.md](benchmarks/RESULTS.md) for the penalty window
+measured on that data.
+
 ## Why signed F but non-negative G
 
 - **`F` signed** is the point: real latent processes both elevate and
@@ -155,8 +164,13 @@ reinitialized** — a run that produces them is evidence about `k`.
   `stationarity_["safeguard_active"]`; only sustained growth (doubling over
   `safeguard_patience` iterations) stops a fit, with `safeguard_hit`. Ordinary
   fits cross that level transiently on the way to a feasible optimum.
-- `converged_` requires physical KKT residuals ≤ `stationarity_tol` (default
-  1e-3) at the returned checkpoint, with theta fixed. `tol` only detects loss
+- `converged_` is set by either of two certificates, distinguished by
+  `stop_reason_`. `"stationary"` means physical KKT residuals ≤
+  `stationarity_tol` (default 1e-3) at the returned checkpoint with theta
+  fixed. `"numerically_stationary"` means no representable step improves the
+  objective, so the fit is optimal for the compute dtype even though its
+  residual is larger; `stationarity_["numerical_floor"]` carries the evidence
+  and the residual is still reported unchanged. `tol` only detects loss
   stagnation. Inspect `stop_reason_`, `stationarity_`, and `timed_out_`.
 - `loss_[0]` is the true initial objective; `n_iter_` counts completed updates.
   `final_objective_` scores the returned best checkpoint. A flat trace or a
@@ -193,3 +207,5 @@ Certified results, and what is still unresolved, are in
 migration from the previous Adam/rescaling optimizer are documented in
 [docs/METHOD.md](docs/METHOD.md) and
 [docs/OPTIMIZER_CHANGELOG.md](docs/OPTIMIZER_CHANGELOG.md).
+[docs/REMAINING_WORK.md](docs/REMAINING_WORK.md) is the current to-do list,
+with the evidence behind each item's priority.

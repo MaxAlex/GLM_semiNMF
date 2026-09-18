@@ -93,9 +93,9 @@ Optional adapters for labeled containers (`pandas.DataFrame`, and `AnnData` if i
 |---|---|---|
 | `F_` | p × k | Signed loadings, columns unit L2 norm |
 | `G_` | n × k | Usages, ≥ 0, scale absorbed from `F` normalization |
-| `G_raw_` | n × k | Pre-softplus `G̃`. **Must be exposed** — downstream rank-based statistics need a tie-free continuous variable, and `G_` has exact zeros. |
+| `G_raw_` | n × k | Pre-softplus `G̃`. ~~**Must be exposed** — downstream rank-based statistics need a tie-free continuous variable, and `G_` has exact zeros.~~ **Superseded:** usages are optimized directly, so `G_raw_` equals `G_` and its boundary ties are real. The old tie-free values were manufactured; downstream rank statistics need a different tie-break. See [METHOD.md](docs/METHOD.md). |
 | `a_`, `b_`, `gamma_`, `theta_` | | |
-| `loss_`, `n_iter_`, `converged_` | | Per-iteration loss trace |
+| `loss_`, `n_iter_`, `converged_` | | Per-iteration loss trace. **Superseded:** `loss_[0]` is the true initial objective so `len(loss_) == n_iter_ + 1`, and `converged_` certifies physical stationarity of the returned state, not loss stagnation. |
 | `deviance_explained_` | float | Vs. an intercept-plus-covariates null |
 | `component_stats_` | DataFrame | Per factor: usage fraction non-zero, mean usage, deviance explained, fraction of loading mass negative, n features above a loading threshold |
 
@@ -109,9 +109,22 @@ Optional adapters for labeled containers (`pandas.DataFrame`, and `AnnData` if i
 
 Block-alternating minimization. Each block is smooth, so either quasi-Newton or first-order methods work; the choice is yours to benchmark.
 
-**Parametrization.** `G = softplus(G̃)` with `G̃` unconstrained. Preferred over projection/clamping because gradients don't die at the boundary and `G̃` is needed as an output anyway. Projected gradient with a clamp is an acceptable alternative *if* `G_raw_` is still produced — but benchmark both, since boundary behaviour differs materially.
+**Parametrization.** ~~`G = softplus(G̃)` with `G̃` unconstrained. Preferred over projection/clamping because gradients don't die at the boundary and `G̃` is needed as an output anyway. Projected gradient with a clamp is an acceptable alternative *if* `G_raw_` is still produced — but benchmark both, since boundary behaviour differs materially.~~
 
-**Scale fixing.** After each outer iteration, rescale columns of `F` to unit L2 norm and push the scale into the corresponding column of `G`. Do this *before* evaluating the convergence criterion, or the loss trace will show phantom movement. Note the L1 penalty interacts with this: `‖F‖₁` is not scale-invariant, so apply the penalty to the *normalized* `F` to keep λ meaningful.
+> **Superseded.** Usages are optimized directly in the nonnegative orthant. A
+> small derivative with respect to `G̃` under softplus can just mean a dead
+> softplus derivative rather than stationarity, which is one reason the old
+> convergence test was unreliable. `g_parametrization="softplus"` remains only
+> as a compatibility output option.
+
+**Scale fixing.** ~~After each outer iteration, rescale columns of `F` to unit L2 norm and push the scale into the corresponding column of `G`. Do this *before* evaluating the convergence criterion, or the loss trace will show phantom movement.~~ Note the L1 penalty interacts with this: `‖F‖₁` is not scale-invariant, so apply the penalty to the *normalized* `F` to keep λ meaningful.
+
+> **Superseded.** This is the central defect the optimizer repair addressed.
+> Rescaling preserves the predictor but multiplies the loading L1 by `1/c` and
+> the usage L2 by `c²`, so a line search accepting steps against one objective
+> was reporting another. Columns are now constrained to unit norm inside the
+> update itself; normalization happens once, at initial canonicalization,
+> before the initial objective is recorded.
 
 **Dispersion.** Estimate `θ` by method of moments on current residuals, then hold fixed for a stretch of outer iterations before re-estimating (re-estimating every iteration is unstable). `"trend"` fits a mean–dispersion trend and shrinks per-feature estimates toward it — this should be the default; per-feature MLE is noisy for low-count features.
 
@@ -121,7 +134,13 @@ Block-alternating minimization. Each block is smooth, so either quasi-Newton or 
 
 **Minibatching.** `G` is row-separable over samples, so the `G`-block minibatches cleanly. The `F`-block needs a full pass or accumulated gradients. Implement `batch_size` for `n > ~10⁵`.
 
-**Convergence.** Relative change in penalized objective below `tol` for 3 consecutive outer iterations. Also stop at `max_iter` with `converged_ = False` and a warning.
+**Convergence.** ~~Relative change in penalized objective below `tol` for 3 consecutive outer iterations.~~ Also stop at `max_iter` with `converged_ = False` and a warning.
+
+> **Superseded.** Loss stagnation detects stalling, not an optimum, and
+> including large likelihood constants in the denominator makes it worse still.
+> `tol` now only triggers an audit. Success requires an independent physical
+> KKT test at the returned checkpoint, or the numerical-floor certificate when
+> no representable step can improve the objective.
 
 ---
 
@@ -148,7 +167,14 @@ These are the failure modes most likely to produce silently wrong results.
 
 ### 5.1 Overflow
 
-`μ = exp(Θ)` overflows readily during early iterations. Clamp `Θ` to a safe range (e.g. `[-30, 30]`) and use `gammaln`, `log1p`, and `logsumexp`-style stabilized forms throughout the NLL. Use the stable softplus (`log1p(exp(-|x|)) + max(x,0)`).
+`μ = exp(Θ)` overflows readily during early iterations. ~~Clamp `Θ` to a safe range (e.g. `[-30, 30]`)~~ and use `gammaln`, `log1p`, and `logsumexp`-style stabilized forms throughout the NLL. Use the stable softplus (`log1p(exp(-|x|)) + max(x,0)`).
+
+> **Superseded in part.** The training likelihood uses a stable expression with
+> no clamp, so its backward derivative is the derivative of the reported
+> objective in both tails. The `[-30, 30]` guard survives only where
+> exponentiation is unavoidable — moment estimation and deviance — and fits
+> whose predictor leaves that range are reported, since their
+> `deviance_explained_` and `theta_` are approximate.
 
 ### 5.2 Separation
 

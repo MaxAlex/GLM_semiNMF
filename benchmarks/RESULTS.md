@@ -448,6 +448,9 @@ compare against, so it remains unverified.
 
 ## Open, with no results yet
 
+Prioritized, with the reasoning behind each, in
+[../docs/REMAINING_WORK.md](../docs/REMAINING_WORK.md).
+
 - Trend quality at the extremes of the mean range, the one dispersion
   mechanism the estimator fix did not address (p=600 seed 12 above).
 - A model-independent dispersion for scoring baselines, without which the

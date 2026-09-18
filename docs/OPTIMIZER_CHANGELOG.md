@@ -121,6 +121,29 @@ outside `+/-30` are where moment estimation and deviance use a clamped mean,
 making `deviance_explained_` and `theta_` approximate. Divergence proper is
 caught by the growth test, which is scale free.
 
+### Dispersion estimation
+
+The method-of-moments estimate `alpha = (ssr - s_mu) / s_mu2` leaves the
+parameter space whenever a feature's residual spread sits at or below its
+Poisson expectation. That happens by chance and does not mean the feature is
+near-Poisson, but those features clamped to the alpha floor and became
+theta ~ 1e4. Because NB curvature carries theta directly
+(`h = (theta + X) * sigmoid(d) * sigmoid(-d)`), a handful of them conditioned
+the mean-model problem badly enough to stop it certifying at all.
+
+Shrinkage weight is now set by how large a feature's variance excess is
+relative to its own sampling scale -- `z = max((ssr - s_mu) / sqrt(2*s_mu2), 0)`
+weighted `z^2/(z^2+1)`, combined with the existing count weight -- and features
+outside the parameter space no longer enter the trend fit. A feature with
+plenty of counts but no resolvable excess takes the trend rather than the
+floor. `"feature"` mode stays raw by contract, and a pooled estimate stands in
+when fewer than ten features support a quadratic trend.
+
+Over 16 problems this moved certification from 11/16 to 13/16, median RMSE of
+log theta from 1.564 to 0.643 (better on 16 of 16), the largest theta from
+9775 to 1989, and total wall time from 1212 s to 955 s, at unchanged factor
+recovery. Regressions are in `tests/test_dispersion.py`.
+
 ### Reported state
 
 Usages are no longer snapped on export: `G_`, `G_raw_` and `G_internal_` are
