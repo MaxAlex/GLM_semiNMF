@@ -177,21 +177,23 @@ each, `dispersion="trend"`, `max_iter=1000`), old estimator against new:
 
 | | old | new |
 |---|---|---|
-| certified | 10/16 | **12/16** |
+| certified | 11/16 | **13/16** |
+| of those, strict KKT `stationary` | 10/16 | 12/16 |
 | median RMSE of log theta vs truth | 1.564 | **0.643** |
 | largest theta over all runs | 9775 | 1989 |
 | median factor recovery | 0.937 | 0.938 |
-| total wall time | 1262 s | 976 s |
+| total wall time | 1212 s | 955 s |
 
 Theta accuracy improved on 16 of 16 problems, and recovery moved between
 -0.001 and +0.026, so this buys certification and accuracy without trading
 away fit quality. It also restored `test_exposure_invariance` to the default
 estimated-dispersion path, which had needed a fixed-theta workaround.
 
-Four problems still do not certify, all at p=600. Three are near misses that
-end `line_search_failed` or `max_iter` at residuals of 1.1e-3 to 1.3e-2
-against a 1e-3 tolerance -- step resolution, not dispersion. The fourth
-(seed 12, residual 7.26) still carries one theta of 1989 against a true 8.9:
+Three problems still do not certify: p=300 seed 15 (`line_search_failed` at
+residual 1.0e-3, refused the numerical certificate) and p=600 seed 6
+(`max_iter` at 1.3e-2) are near misses of step resolution rather than
+dispersion. The third (p=600 seed 12, residual 7.26) still carries one theta of
+1989 against a true 8.9:
 that feature has the largest mean in the dataset, takes the trend entirely
 (weight 0), and the trend is simply poor at the top of the mean range. A trend
 value bounded to the fitted response range was tried and reverted: it changed
@@ -211,18 +213,19 @@ and `g_parametrization` are now aliases of one solver.
 
 | init | wall | iters | stop | residual | initial objective | final objective | recovery |
 |---|---|---|---|---|---|---|---|
-| svd | 88.7 s | 709 | `line_search_failed` | 7.2e-3 | 2,692,209 | 2,428,488 | **0.939** |
-| nmf | 57.3 s | 467 | `line_search_failed` | 2.7e-3 | 3,546,182 | **2,417,762** | 0.921 |
-| random | 25.1 s | 221 | `line_search_failed` | 2.7e-3 | 2,801,482 | 2,577,771 | 0.152 |
+| svd | 88.4 s | 709 | `numerically_stationary` | 7.2e-3 | 2,692,209 | 2,428,488 | **0.939** |
+| nmf | 56.8 s | 467 | `numerically_stationary` | 2.7e-3 | 3,546,182 | **2,417,762** | 0.921 |
+| random | 25.2 s | 221 | `numerically_stationary` | 2.7e-3 | 2,801,482 | 2,577,771 | 0.152 |
 
-None certified, and the budget is not what stopped them: raising it 16x from
-the 500-iteration default moved only svd (500 to 709 iterations, residual
-0.204 to 0.0072) before its line search gave out too. All three converge to a
-residual floor of 2.7e-3 to 7.2e-3 at this problem size, against a 1e-3
-tolerance, which is the step-resolution limit rather than three different
-optima.
+All three certify, on the numerical-floor criterion rather than the KKT one:
+none reaches the 1e-3 absolute residual at this problem size, and none can,
+because each is at the limit of what its step construction can resolve.
+Budget is not the constraint either -- raising it 16x from the 500-iteration
+default moved only svd (500 to 709 iterations, residual 0.204 to 0.0072)
+before its line search gave out too. So this is a comparison of three fits
+that are each numerically final, not of three transients.
 
-Read at roughly matched residuals, the historical "svd wins on every axis"
+On that footing, the historical "svd wins on every axis"
 does not survive: **nmf reaches the lowest objective** while svd has the best
 factor recovery, and nmf gets there from the worst starting point of the three
 (initial objective 3.55e6 against svd's 2.69e6) -- a comparison the old code
@@ -233,8 +236,12 @@ initialization. Random init remains far worse on recovery.
 
 | mode | wall | stop | residual | recovery | deviance explained |
 |---|---|---|---|---|---|
-| `"offset"` | 163.5 s | `line_search_failed` | 1.2e-2 | **0.939** | **0.572** |
-| `"fit"` | 62.1 s | `line_search_failed` | 1.3e-3 | 0.892 | 0.387 |
+| `"offset"` | 161.6 s | `numerically_stationary` | 1.2e-2 | **0.939** | **0.572** |
+| `"fit"` | 61.8 s | `line_search_failed` | 1.3e-3 | 0.892 | 0.387 |
+
+Only `"offset"` certifies. `"fit"` is refused the numerical certificate
+because it makes `b` trainable, putting it in the other block group, and that
+group is not shown to be at a floor.
 
 Cross-agreement between the two fits' loadings 0.921; agreement between their
 exposures 0.799. Offset stays the right default, now on stronger grounds than
