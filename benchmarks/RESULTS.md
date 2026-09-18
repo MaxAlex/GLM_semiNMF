@@ -385,10 +385,41 @@ would be dimensionally correct where an absolute gradient is not. That is not
 the forbidden move of dividing stationarity by the NLL or its constants:
 gradient over curvature has units of parameter distance.
 
-Ordering for that work: fix the slope accumulation first, since it is cheap and
-would show how much of the 1e-11 floor is recoverable, then recalibrate the
-criterion against whatever floor remains. Calibrating first would bake in a
-floor that may be an artifact.
+### It costs nothing in fit quality
+
+Before treating any of that as solver work, the question is whether pushing
+through the floor would produce a better fit. Measured on p=600, n=2000, k=6:
+
+| | stop | iters | residual | objective | recovery | dev. explained |
+|---|---|---|---|---|---|---|
+| float64, to failure | `line_search_failed` | 663 | 1.48e-2 | 2428487.6 | 0.9395 | 0.6027 |
+| continuation, fresh curvature | `line_search_failed` | **0** | 1.48e-2 | 2428487.6 | 0.9395 | - |
+| float32, to failure | `line_search_failed` | 93 | **153.8** | 2428489.0 | 0.9399 | 0.6027 |
+
+Rebuilding the state from the returned parameters and running again with
+freshly computed curvature and a 4000-iteration budget accepts **zero** steps
+and moves the objective by exactly 0. The floor is hard, and nothing is left
+on the table.
+
+The float32 row is the more informative one. Its line search quits after 93
+iterations instead of 663, at a residual 10,000x larger -- and the fit is
+indistinguishable: the objective is 1.4 higher out of 2.43e6 (5.8e-7
+relative), recovery is 0.9399 against 0.9395, and deviance explained agrees to
+four decimals. Stopping early cost nothing and saved 7x the iterations.
+
+So the residual at which the line search gives out is a poor proxy for how good
+the fit is, and `line_search_failed` near an optimum is closer to a feature
+than a defect. **What is wrong here is the label, not the answer**: `converged_`
+reads False on fits that are numerically final. Fixing the slope accumulation
+and the criterion would correct the reporting and make benchmark tables
+readable; it would not produce better fits, and it is not a reason to pursue
+second-order steps. Scope it as a diagnostics fix.
+
+Evidence is one synthetic problem with a matched float64/float32 pair plus the
+continuation test. The 20 Newsgroups fit certified outright, so it never
+reached this regime, and the p=3000 float32 row in the scaling section
+(`line_search_failed` at residual 1561) has no converged counterpart to
+compare against, so it remains unverified.
 
 ## Open, with no results yet
 
@@ -397,10 +428,10 @@ floor that may be an artifact.
 - A model-independent dispersion for scoring baselines, without which the
   NMF and GLM-PCA comparison above cannot be read as a baseline comparison.
   Verifying the GLM-PCA predictor reconstruction belongs with it.
-- Cancellation-free accumulation of the composite slope, then a curvature-aware
-  certification criterion calibrated against the floor that remains. The
-  absolute `stationarity_tol` is measurably the wrong yardstick either way: two
-  fits the same distance from their optima get opposite verdicts.
+- Diagnostics only, not fit quality (see "It costs nothing in fit quality"):
+  cancellation-free accumulation of the composite slope, then a curvature-aware
+  certification criterion calibrated against the floor that remains, so
+  `converged_` stops reading False on numerically final fits.
 - Second-order acceleration (projected Newton for G, sphere-respecting
   second-order F). Each outer iteration currently costs about 24 data passes:
   ~11 gradient evaluations, ~12 objective-difference evaluations for
