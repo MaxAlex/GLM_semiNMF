@@ -9,6 +9,14 @@ corrected in place, because the solver they measured no longer exists.
 A run that exhausted its budget is reported as unresolved. It is never counted
 as a success, and never as evidence that a configuration is bad.
 
+## Merge regression check (2026-09-30)
+
+The [merge validation report](runs/merge_regression_v1/README.md) compares both
+parents with the merged code. Optimizer and single-cell results match the local
+parent exactly in the rerun cases; fixed-basis objectives match within 2.84e-9
+and improve on the incoming solver. It also records timing, convergence limits,
+source hashes, and the 154 passing tests.
+
 ## Current: single-cell adaptation (2026-09-22)
 
 See [the single-cell report](../docs/SINGLE_CELL_WORK.md) for protocols,

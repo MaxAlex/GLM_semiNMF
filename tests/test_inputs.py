@@ -1,4 +1,4 @@
-"""Input validation: raw integer counts only, covariate encoding."""
+"""Input validation: non-negative counts, covariate encoding."""
 
 import numpy as np
 import pandas as pd
@@ -8,21 +8,53 @@ import scipy.sparse as sp
 from glm_seminmf._inputs import encode_Z, validate_X
 
 
-def test_rejects_non_integer_counts():
-    X = np.random.default_rng(0).gamma(2.0, size=(10, 8))
-    with pytest.raises(ValueError, match="integer"):
+def test_accepts_non_integer_counts():
+    """Ambient correction (CellBender) emits fractional posterior means.
+
+    The NB2 likelihood is defined for any real x >= 0 -- the only x-dependent gamma term is
+    lgamma(x + 1) and the deviance uses xlogy -- so nothing in the fitter counts events.
+    """
+    X = np.random.default_rng(0).gamma(2.0, scale=60.0, size=(10, 8))
+    validate_X(X)
+
+
+def test_accepts_non_integer_sparse():
+    X = sp.random(20, 15, density=0.3, random_state=0, format="csr") * 370.0
+    validate_X(X)
+
+
+def test_rejects_normalized_looking_input():
+    """Fractional *and* small-ranged still raises: that is log1p/CPM, not counts."""
+    rng = np.random.default_rng(0)
+    X = np.log1p(rng.poisson(3.0, size=(50, 60)).astype(float))
+    with pytest.raises(ValueError, match="looks normalized"):
         validate_X(X)
 
 
-def test_rejects_non_integer_sparse():
-    X = sp.random(20, 15, density=0.3, random_state=0, format="csr") * 3.7
-    with pytest.raises(ValueError, match="integer"):
-        validate_X(X)
+def test_non_integer_counts_fit_end_to_end():
+    from glm_seminmf import NBGLMSemiNMF
+    from glm_seminmf.simulate import simulate_nb_seminmf
+
+    sim = simulate_nb_seminmf(p=120, n=300, k=3, random_state=0)
+    X = np.asarray(sim.X.todense() if hasattr(sim.X, "todense") else sim.X, dtype=np.float64)
+    model = NBGLMSemiNMF(n_components=3, max_iter=60, random_state=0).fit(X * 0.93 + 0.07)
+    assert np.isfinite(model.F_).all() and np.isfinite(model.G_).all()
+    assert (model.G_ >= 0).all()
 
 
 def test_rejects_negative_counts():
     X = np.array([[1, 2], [-1, 0]])
     with pytest.raises(ValueError, match="non-negative"):
+        validate_X(X)
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+@pytest.mark.parametrize("sparse", [False, True])
+def test_rejects_nonfinite_counts(value, sparse):
+    X = np.array([[1., 40.], [value, 0.]])
+    if sparse:
+        X = sp.csc_matrix(X)
+    with pytest.raises(ValueError, match="finite counts"):
         validate_X(X)
 
 

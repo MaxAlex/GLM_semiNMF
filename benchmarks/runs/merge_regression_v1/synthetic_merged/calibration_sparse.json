@@ -1,0 +1,31 @@
+{
+  "stop_reason": "max_iter",
+  "converged": false,
+  "theta_sha256": "937d650be8b409238207dd6f437cc1f8a70543fe79672568f06e63b848016b76",
+  "seconds": 16.3736872933805,
+  "config": {
+    "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/synthetic_merged",
+    "mode": "fit",
+    "real_npz": null,
+    "genes": 300,
+    "cells": 400,
+    "cases": [
+      "sparse",
+      "moderate"
+    ],
+    "profiles": [
+      "legacy",
+      "combined"
+    ],
+    "seeds": [
+      0
+    ],
+    "max_iter": 300,
+    "seconds": 180.0,
+    "device": "cuda",
+    "dtype": "float64",
+    "threads": 1,
+    "reuse_step_size": false,
+    "case": "sparse"
+  }
+}

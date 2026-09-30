@@ -297,7 +297,7 @@ class NBGLMSemiNMF:
         setattr(self, prefix + "loss_", np.asarray(result.losses))
         setattr(self, prefix + "history_", result.history)
         tolerance = 1e-10 * max(1, abs(result.initial_objective))
-        setattr(self, prefix + "improved_on_init_", result.final_objective < result.initial_objective - tolerance)
+        setattr(self, prefix + "improved_on_init_", bool(result.final_objective < result.initial_objective - tolerance))
         setattr(self, prefix + "initial_at_final_theta_", result.initial_at_final_theta)
         setattr(self, prefix + "mean_improved_on_init_", result.final_objective <
                 result.initial_at_final_theta - 1e-10 * max(1, abs(result.initial_at_final_theta)))
@@ -327,14 +327,20 @@ class NBGLMSemiNMF:
 
     # -------------------------------------------------------------------- fit
 
-    def fit(self, X, Z=None, *, F_fixed=None, theta_fixed=None, exposure=None) -> "NBGLMSemiNMF":
+    def fit(self, X, Z=None, F_fixed=None, *, theta_fixed=None, exposure=None) -> "NBGLMSemiNMF":
         """Fit the model to counts ``X`` (p features x n samples).
 
-        ``X``: dense ndarray or scipy CSR/CSC of raw integer counts.
+        ``X``: dense ndarray or scipy CSR/CSC of unnormalized nonnegative counts.
+        Fractional counts at count-scale magnitudes are accepted.
         ``Z``: optional (n, q) covariate design (ndarray or DataFrame;
         DataFrame categoricals are one-hot encoded, first level dropped).
         ``F_fixed`` optionally supplies (p, k) frozen loadings, retaining their
-        values, scale, and order. ``theta_fixed`` supplies a positive scalar
+        values, scale, and order, and overriding ``n_components`` with k.
+        Only F is frozen; nuisance parameters and usages are estimated for this
+        cohort. Usages start from a projection onto the supplied basis unless
+        an explicit ``init=(F0, G0)`` supplies G0 (F0 is replaced by F_fixed).
+        Precision is promoted when needed to preserve the supplied loadings.
+        ``theta_fixed`` supplies a positive scalar
         or (p,) vector and overrides the constructor dispersion policy.
         ``exposure`` optionally overrides the constructor with fixed per-sample
         log offsets, usually computed before gene selection. Subsequent
@@ -353,13 +359,25 @@ class NBGLMSemiNMF:
 
         b0, b_trainable = self._exposure_b(X, n, exposure)
         deadline = None if self.max_seconds is None else started + self.max_seconds
-        F0, G0, a0, gamma0 = initialize(X, b0, k, self.init, self.random_state, Znp,
-                                      deadline=deadline, batch_size=self.batch_size)
         if F_fixed is not None:
-            F_fixed = np.asarray(F_fixed)
-            if F_fixed.shape != (p, k) or not np.isfinite(F_fixed).all():
-                raise ValueError("F_fixed must be finite with shape (p, n_components)")
+            F_fixed = np.asarray(F_fixed, dtype=np.float64)
+            if F_fixed.ndim != 2:
+                raise ValueError("F_fixed must be a finite 2-D matrix with shape (p, k)")
+            if F_fixed.shape[0] != p:
+                raise ValueError(f"F_fixed has {F_fixed.shape[0]} rows, expected p={p} features")
+            if not np.isfinite(F_fixed).all():
+                raise ValueError("F_fixed must be finite")
+            k = F_fixed.shape[1]
+            self.n_components = k
+        project_start = F_fixed is not None and not isinstance(self.init, tuple)
+        # A fixed basis needs only nuisance initialization, not an unrelated SVD.
+        F0, G0, a0, gamma0 = initialize(
+            X, b0, 0 if project_start else k, "random" if project_start else self.init,
+            self.random_state, Znp, deadline=deadline, batch_size=self.batch_size)
+        if F_fixed is not None:
             F0 = F_fixed.copy()
+            if project_start:
+                G0 = np.zeros((n, k))
             # Preserve supplied values even when the ordinary compute default is lower precision.
             if not np.array_equal(F0.astype(np.float32).astype(F0.dtype), F0):
                 dtype = torch.float64
@@ -368,8 +386,11 @@ class NBGLMSemiNMF:
         state = self._build_state(F0, G0, a0, b0, gamma0, Znp, p, n, k, b_trainable, device, dtype)
         state.F_trainable = F_fixed is None
         self.fixed_loadings_ = F_fixed is not None
-        rescale_columns(state)
+        self.F_fixed_ = self.fixed_loadings_
         data = DataSource(X, Znp, device, dtype, self.batch_size)
+        if project_start:
+            self._warm_start_G(state, data)
+        rescale_columns(state)
         cfg = self._cfg(p)
         fixed_theta = theta_fixed if theta_fixed is not None else (
             self.dispersion if not isinstance(self.dispersion, str) else None)
@@ -391,11 +412,19 @@ class NBGLMSemiNMF:
             warnings.warn(f"did not converge: {result.stop_reason} after {result.n_iter} iterations "
                           f"(physical residual {result.stationarity['max_residual']:.3g})",
                           RuntimeWarning, stacklevel=2)
+        if not self.improved_on_init_ and not result.converged:
+            warnings.warn(
+                "the optimizer never improved on its initialization within numerical tolerance; "
+                "inspect stop_reason_, stationarity_, and mean_improved_on_init_ before using "
+                "this fit. learning_rate is a curvature-scaled trial step with backtracking",
+                RuntimeWarning, stacklevel=2)
         if result.stop_reason == "safeguard_hit":
             warnings.warn(
                 "factor contribution diverged (sustained growth above the separation trigger); "
                 "this indicates a separating feature/factor, not a tight iteration budget. "
-                "Returning the best checkpoint seen; raise l1_F or reduce n_components",
+                + ("Returning the best checkpoint seen; inspect the supplied basis and usage penalties"
+                 if self.fixed_loadings_ else
+                 "Returning the best checkpoint seen; raise l1_F or reduce n_components"),
                 RuntimeWarning, stacklevel=2)
         outside = result.stationarity["predictor"]["entries_outside_moment_range"]
         if outside:
@@ -547,7 +576,7 @@ class NBGLMSemiNMF:
     def transform(self, X, Z=None, exposure: np.ndarray | None = None) -> np.ndarray:
         """Fit usages ``G`` for new samples with F, a, gamma, theta held fixed.
 
-        ``X`` is (p, n_new) raw integer counts over the fit-time features;
+        ``X`` is (p, n_new) unnormalized nonnegative counts over the fit-time features;
         ``Z`` must be supplied iff the model was fitted with covariates.
         Returns the (n_new, k) physical nonnegative usage matrix without
         snapping. Raw compatibility values are stored as ``transform_raw_``;

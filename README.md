@@ -113,7 +113,7 @@ model = NBGLMSemiNMF(
     init="svd",
     random_state=0,
 )
-model.fit(sim.X)                      # raw integer counts, features x samples
+model.fit(sim.X)                      # unnormalized counts, features x samples
 
 model.F_                  # (p, k) signed loadings, unit-L2 columns
 model.G_                  # (n, k) physical usages, >= 0, exact boundary zeros
@@ -154,8 +154,10 @@ reinitialized**. Inspect usage penalties and `k` when interpreting them.
 
 ## Practical notes
 
-- **Raw integer counts only.** The model normalizes via `b`; normalized or
-  log-transformed input raises.
+- **Unnormalized nonnegative counts.** Fractional corrected counts are accepted
+  without rounding. Fractional input with a maximum below 30 is rejected as
+  potentially normalized; this heuristic can also reject low-depth corrected
+  counts. The model normalizes via `b`.
 - `exposure="offset"` (default) is the stable choice; `"fit"` estimates `b`
   jointly and can absorb structure that belongs in `G`. An array supplies
   fixed per-sample log-exposure offsets.
@@ -199,8 +201,19 @@ reinitialized**. Inspect usage penalties and `k` when interpreting them.
   `final_objective_` scores the returned best checkpoint. A flat trace or a
   timeout is not evidence of convergence.
 - `fit(X, F_fixed=F, theta_fixed=theta)` freezes supplied loading values/order
-  and scalar or per-feature dispersion. Transform also freezes intercepts and
+  and scalar or per-feature dispersion. `F_fixed` determines `n_components`;
+  `F_fixed_` and `fixed_loadings_` report whether the basis was supplied.
+  Fixed-basis fits initialize usages by projection unless an explicit
+  `init=(F0, G0)` supplies them. Transform also freezes intercepts and
   covariate coefficients. All frozen blocks remain unchanged.
+- `simulate_nb_seminmf(..., F_fixed=F)` reuses a shared basis across draws;
+  `draw_nb_counts(a, b, theta, F, G, rng=...)` also lets callers share nuisance
+  parameters while varying cohort usages and exposures.
+- `improved_on_init_` compares the returned objective with initialization;
+  `mean_improved_on_init_` compares both means at the returned dispersion.
+  An uncertified fit without improvement warns. Already stationary starts
+  need no improvement, and the solver uses backtracking for both ordinary
+  and fixed-basis fits.
 - `max_seconds` supplies a cooperative deadline; in-flight work and the final
   audit can overrun it. Optional deviance scoring may be unavailable at timeout.
   Use the bounded benchmark harness when a hard process cap is needed.

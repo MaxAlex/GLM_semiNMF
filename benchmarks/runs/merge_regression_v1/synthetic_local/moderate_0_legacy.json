@@ -1,0 +1,132 @@
+{
+  "config": {
+    "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/synthetic_local",
+    "mode": "fit",
+    "real_npz": null,
+    "genes": 300,
+    "cells": 400,
+    "cases": [
+      "sparse",
+      "moderate"
+    ],
+    "profiles": [
+      "legacy",
+      "combined"
+    ],
+    "seeds": [
+      0
+    ],
+    "max_iter": 300,
+    "seconds": 180.0,
+    "device": "cuda",
+    "dtype": "float64",
+    "threads": 1,
+    "reuse_step_size": false,
+    "case": "moderate",
+    "seed": 0,
+    "profile": "legacy",
+    "calibration_file": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/synthetic_local/calibration_moderate.json"
+  },
+  "shape": [
+    300,
+    400
+  ],
+  "zero_fraction": 0.8585083333333333,
+  "mean_count": 0.236275,
+  "fit_seconds": 24.62448039278388,
+  "extra_start_seconds": 0.025301676243543625,
+  "n_iter": 300,
+  "converged": false,
+  "stop_reason": "max_iter",
+  "residual": 0.1318415827051922,
+  "work": {
+    "derivative_passes": 3000,
+    "line_search_trials": 3109
+  },
+  "l1_G": 1.5,
+  "initial_objective": 38088.621132399836,
+  "final_objective": 36436.16681976146,
+  "peak_gpu_mb": 18.68994140625,
+  "collapsed": 0,
+  "rare": 0,
+  "zero_usage_fraction": 0.8677777777777778,
+  "common_null": {
+    "stop_reason": "max_iter",
+    "converged": false,
+    "theta_sha256": "a39d8cb449920d8bcb845c14ddda8483dd57e710e2033d36c510aa35bd0f2d23",
+    "seconds": 11.21354627981782,
+    "config": {
+      "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/synthetic_local",
+      "mode": "fit",
+      "real_npz": null,
+      "genes": 300,
+      "cells": 400,
+      "cases": [
+        "sparse",
+        "moderate"
+      ],
+      "profiles": [
+        "legacy",
+        "combined"
+      ],
+      "seeds": [
+        0
+      ],
+      "max_iter": 300,
+      "seconds": 180.0,
+      "device": "cuda",
+      "dtype": "float64",
+      "threads": 1,
+      "reuse_step_size": false,
+      "case": "moderate"
+    }
+  },
+  "transform": {
+    "converged": true,
+    "stop_reason": "stationary",
+    "seconds": 0.03516864962875843
+  },
+  "score": {
+    "common_theta_deviance_explained": 0.006465265632124906,
+    "nll_per_entry": 0.37979073635363564,
+    "observed_zero_fraction": 0.887,
+    "predicted_zero_fraction": 0.917473701396857,
+    "zero_brier": 0.08850540965035865
+  },
+  "calibration": [
+    {
+      "mean_range": [
+        0.01,
+        0.1
+      ],
+      "genes": 30,
+      "common_theta_deviance_explained": 0.002865825839318048,
+      "nll_per_entry": 0.19748436891334076,
+      "observed_zero_fraction": 0.95,
+      "predicted_zero_fraction": 0.9581664779170742,
+      "zero_brier": 0.045823423873868015
+    },
+    {
+      "mean_range": [
+        0.1,
+        1.0
+      ],
+      "genes": 30,
+      "common_theta_deviance_explained": 0.008521237911426338,
+      "nll_per_entry": 0.5620971037939306,
+      "observed_zero_fraction": 0.824,
+      "predicted_zero_fraction": 0.8767809248766395,
+      "zero_brier": 0.1311873954268493
+    }
+  ],
+  "warnings": [
+    "did not converge: max_iter after 300 iterations (physical residual 0.132)"
+  ],
+  "loading_recovery": 0.7161761482089228,
+  "usage_correlations": [
+    0.8689748614429275,
+    0.36182293180855396,
+    0.863902825431068
+  ],
+  "log_theta_rmse": 1.8076098797170663
+}

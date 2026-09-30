@@ -1,0 +1,462 @@
+[
+  {
+    "config": {
+      "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local",
+      "mode": "fit",
+      "real_npz": "/home/max/codestuff/glm_seminmf/benchmarks/data/naive_cd4_discovery_800.npz",
+      "genes": 300,
+      "cells": 400,
+      "cases": [
+        "sparse",
+        "moderate",
+        "rare_correlated"
+      ],
+      "profiles": [
+        "legacy",
+        "ridge",
+        "combined"
+      ],
+      "seeds": [
+        0
+      ],
+      "max_iter": 30,
+      "seconds": 180.0,
+      "device": "cuda",
+      "dtype": "float64",
+      "threads": 1,
+      "reuse_step_size": false,
+      "case": "real",
+      "seed": 0,
+      "profile": "legacy",
+      "calibration_file": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local/calibration_real.json"
+    },
+    "shape": [
+      2000,
+      800
+    ],
+    "zero_fraction": 0.97426375,
+    "mean_count": 0.0585475,
+    "fit_seconds": 4.0130212046206,
+    "extra_start_seconds": 0.772163238376379,
+    "n_iter": 13,
+    "converged": true,
+    "stop_reason": "stationary",
+    "residual": 0.0008239485669356839,
+    "work": {
+      "derivative_passes": 130,
+      "line_search_trials": 130
+    },
+    "l1_G": 10.0,
+    "initial_objective": 127611.7843155127,
+    "final_objective": 115724.00119377782,
+    "peak_gpu_mb": 148.162109375,
+    "collapsed": 4,
+    "rare": 0,
+    "zero_usage_fraction": 0.9993333333333333,
+    "common_null": {
+      "stop_reason": "stationary",
+      "converged": true,
+      "theta_sha256": "6b3601d4117b3630caff0bd22177e0d650191408c3d0cbe0304391698ba9df5e",
+      "seconds": 1.0521473065018654,
+      "config": {
+        "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local",
+        "mode": "fit",
+        "real_npz": "/home/max/codestuff/glm_seminmf/benchmarks/data/naive_cd4_discovery_800.npz",
+        "genes": 300,
+        "cells": 400,
+        "cases": [
+          "sparse",
+          "moderate",
+          "rare_correlated"
+        ],
+        "profiles": [
+          "legacy",
+          "ridge",
+          "combined"
+        ],
+        "seeds": [
+          0
+        ],
+        "max_iter": 30,
+        "seconds": 180.0,
+        "device": "cuda",
+        "dtype": "float64",
+        "threads": 1,
+        "reuse_step_size": false,
+        "case": "real"
+      }
+    },
+    "transform": {
+      "converged": true,
+      "stop_reason": "stationary",
+      "seconds": 0.0716028306633234
+    },
+    "score": {
+      "common_theta_deviance_explained": -0.003368852347928053,
+      "nll_per_entry": 0.11580040594861825,
+      "observed_zero_fraction": 0.9716,
+      "predicted_zero_fraction": 0.9677184462224726,
+      "zero_brier": 0.02107125880153352
+    },
+    "calibration": [
+      {
+        "mean_range": [
+          0.0,
+          0.01
+        ],
+        "genes": 257,
+        "common_theta_deviance_explained": -0.025487142842510524,
+        "nll_per_entry": 0.015404193974728319,
+        "observed_zero_fraction": 0.9986770428015564,
+        "predicted_zero_fraction": 0.9988141280280699,
+        "zero_brier": 0.0013187210700137412
+      },
+      {
+        "mean_range": [
+          0.01,
+          0.1
+        ],
+        "genes": 105,
+        "common_theta_deviance_explained": 0.00030968553299048907,
+        "nll_per_entry": 0.15583997725949394,
+        "observed_zero_fraction": 0.9691428571428572,
+        "predicted_zero_fraction": 0.9611323560458193,
+        "zero_brier": 0.02960397569304325
+      },
+      {
+        "mean_range": [
+          0.1,
+          1.0
+        ],
+        "genes": 34,
+        "common_theta_deviance_explained": 0.0004886314854668505,
+        "nll_per_entry": 0.5267684034821323,
+        "observed_zero_fraction": 0.8472058823529411,
+        "predicted_zero_fraction": 0.8280661892331592,
+        "zero_brier": 0.1240237082905787
+      },
+      {
+        "mean_range": [
+          1.0,
+          null
+        ],
+        "genes": 4,
+        "common_theta_deviance_explained": -0.0036147392988994387,
+        "nll_per_entry": 2.0219902993256884,
+        "observed_zero_fraction": 0.35375,
+        "predicted_zero_fraction": 0.3297499417591601,
+        "zero_brier": 0.1910921689926649
+      }
+    ],
+    "warnings": [
+      "degenerate or duplicated factors detected (see component_stats_); check usage penalties and n_components; factors were not dropped"
+    ]
+  },
+  {
+    "config": {
+      "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local",
+      "mode": "fit",
+      "real_npz": "/home/max/codestuff/glm_seminmf/benchmarks/data/naive_cd4_discovery_800.npz",
+      "genes": 300,
+      "cells": 400,
+      "cases": [
+        "sparse",
+        "moderate",
+        "rare_correlated"
+      ],
+      "profiles": [
+        "legacy",
+        "ridge",
+        "combined"
+      ],
+      "seeds": [
+        0
+      ],
+      "max_iter": 30,
+      "seconds": 180.0,
+      "device": "cuda",
+      "dtype": "float64",
+      "threads": 1,
+      "reuse_step_size": false,
+      "case": "real",
+      "seed": 0,
+      "profile": "ridge",
+      "calibration_file": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local/calibration_real.json"
+    },
+    "shape": [
+      2000,
+      800
+    ],
+    "zero_fraction": 0.97426375,
+    "mean_count": 0.0585475,
+    "fit_seconds": 6.138425204902887,
+    "extra_start_seconds": 0.7371086832135916,
+    "n_iter": 30,
+    "converged": false,
+    "stop_reason": "max_iter",
+    "residual": 188.30543541753295,
+    "work": {
+      "derivative_passes": 300,
+      "line_search_trials": 444
+    },
+    "l1_G": 0.02,
+    "initial_objective": 115286.65765772342,
+    "final_objective": 111165.75319433196,
+    "peak_gpu_mb": 148.162109375,
+    "collapsed": 0,
+    "rare": 0,
+    "zero_usage_fraction": 0.256,
+    "common_null": {
+      "stop_reason": "stationary",
+      "converged": true,
+      "theta_sha256": "6b3601d4117b3630caff0bd22177e0d650191408c3d0cbe0304391698ba9df5e",
+      "seconds": 1.0521473065018654,
+      "config": {
+        "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local",
+        "mode": "fit",
+        "real_npz": "/home/max/codestuff/glm_seminmf/benchmarks/data/naive_cd4_discovery_800.npz",
+        "genes": 300,
+        "cells": 400,
+        "cases": [
+          "sparse",
+          "moderate",
+          "rare_correlated"
+        ],
+        "profiles": [
+          "legacy",
+          "ridge",
+          "combined"
+        ],
+        "seeds": [
+          0
+        ],
+        "max_iter": 30,
+        "seconds": 180.0,
+        "device": "cuda",
+        "dtype": "float64",
+        "threads": 1,
+        "reuse_step_size": false,
+        "case": "real"
+      }
+    },
+    "transform": {
+      "converged": false,
+      "stop_reason": "max_iter",
+      "seconds": 1.7350171115249395
+    },
+    "score": {
+      "common_theta_deviance_explained": 0.02837949593990241,
+      "nll_per_entry": 0.11383515642670741,
+      "observed_zero_fraction": 0.9716,
+      "predicted_zero_fraction": 0.9701911751956417,
+      "zero_brier": 0.02086194801455296
+    },
+    "calibration": [
+      {
+        "mean_range": [
+          0.0,
+          0.01
+        ],
+        "genes": 257,
+        "common_theta_deviance_explained": -0.04138809514803232,
+        "nll_per_entry": 0.015610018071683643,
+        "observed_zero_fraction": 0.9986770428015564,
+        "predicted_zero_fraction": 0.9988146909734201,
+        "zero_brier": 0.0013186171425934505
+      },
+      {
+        "mean_range": [
+          0.01,
+          0.1
+        ],
+        "genes": 105,
+        "common_theta_deviance_explained": 0.0063085869422166985,
+        "nll_per_entry": 0.1552194407676443,
+        "observed_zero_fraction": 0.9691428571428572,
+        "predicted_zero_fraction": 0.9618104181792748,
+        "zero_brier": 0.02954018405716243
+      },
+      {
+        "mean_range": [
+          0.1,
+          1.0
+        ],
+        "genes": 34,
+        "common_theta_deviance_explained": 0.035922417651600425,
+        "nll_per_entry": 0.5175679454168517,
+        "observed_zero_fraction": 0.8472058823529411,
+        "predicted_zero_fraction": 0.8389575666358715,
+        "zero_brier": 0.1213964814329959
+      },
+      {
+        "mean_range": [
+          1.0,
+          null
+        ],
+        "genes": 4,
+        "common_theta_deviance_explained": 0.2607124025089972,
+        "nll_per_entry": 1.9067341253711638,
+        "observed_zero_fraction": 0.35375,
+        "predicted_zero_fraction": 0.46661083091104727,
+        "zero_brier": 0.19417372636268815
+      }
+    ],
+    "warnings": [
+      "did not converge: max_iter after 30 iterations (physical residual 188)",
+      "transform did not converge: max_iter"
+    ]
+  },
+  {
+    "config": {
+      "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local",
+      "mode": "fit",
+      "real_npz": "/home/max/codestuff/glm_seminmf/benchmarks/data/naive_cd4_discovery_800.npz",
+      "genes": 300,
+      "cells": 400,
+      "cases": [
+        "sparse",
+        "moderate",
+        "rare_correlated"
+      ],
+      "profiles": [
+        "legacy",
+        "ridge",
+        "combined"
+      ],
+      "seeds": [
+        0
+      ],
+      "max_iter": 30,
+      "seconds": 180.0,
+      "device": "cuda",
+      "dtype": "float64",
+      "threads": 1,
+      "reuse_step_size": false,
+      "case": "real",
+      "seed": 0,
+      "profile": "combined",
+      "calibration_file": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local/calibration_real.json"
+    },
+    "shape": [
+      2000,
+      800
+    ],
+    "zero_fraction": 0.97426375,
+    "mean_count": 0.0585475,
+    "fit_seconds": 5.6350076254457235,
+    "extra_start_seconds": 4.491824563592672,
+    "n_iter": 30,
+    "converged": false,
+    "stop_reason": "max_iter",
+    "residual": 109.32307939625886,
+    "work": {
+      "derivative_passes": 300,
+      "line_search_trials": 367
+    },
+    "l1_G": 0.07415293707248104,
+    "initial_objective": 118874.06633214347,
+    "final_objective": 113001.23211489296,
+    "peak_gpu_mb": 148.162109375,
+    "collapsed": 0,
+    "rare": 0,
+    "zero_usage_fraction": 0.44133333333333336,
+    "common_null": {
+      "stop_reason": "stationary",
+      "converged": true,
+      "theta_sha256": "6b3601d4117b3630caff0bd22177e0d650191408c3d0cbe0304391698ba9df5e",
+      "seconds": 1.0521473065018654,
+      "config": {
+        "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local",
+        "mode": "fit",
+        "real_npz": "/home/max/codestuff/glm_seminmf/benchmarks/data/naive_cd4_discovery_800.npz",
+        "genes": 300,
+        "cells": 400,
+        "cases": [
+          "sparse",
+          "moderate",
+          "rare_correlated"
+        ],
+        "profiles": [
+          "legacy",
+          "ridge",
+          "combined"
+        ],
+        "seeds": [
+          0
+        ],
+        "max_iter": 30,
+        "seconds": 180.0,
+        "device": "cuda",
+        "dtype": "float64",
+        "threads": 1,
+        "reuse_step_size": false,
+        "case": "real"
+      }
+    },
+    "transform": {
+      "converged": true,
+      "stop_reason": "stationary",
+      "seconds": 0.1363664772361517
+    },
+    "score": {
+      "common_theta_deviance_explained": 0.026537031164392988,
+      "nll_per_entry": 0.11394920654945331,
+      "observed_zero_fraction": 0.9716,
+      "predicted_zero_fraction": 0.9697229468007723,
+      "zero_brier": 0.02077955353300074
+    },
+    "calibration": [
+      {
+        "mean_range": [
+          0.0,
+          0.01
+        ],
+        "genes": 257,
+        "common_theta_deviance_explained": -0.04135674158993985,
+        "nll_per_entry": 0.015609612226948262,
+        "observed_zero_fraction": 0.9986770428015564,
+        "predicted_zero_fraction": 0.9988141281035292,
+        "zero_brier": 0.0013186723434483562
+      },
+      {
+        "mean_range": [
+          0.01,
+          0.1
+        ],
+        "genes": 105,
+        "common_theta_deviance_explained": 0.0073077306803654984,
+        "nll_per_entry": 0.15511608765216034,
+        "observed_zero_fraction": 0.9691428571428572,
+        "predicted_zero_fraction": 0.9620126366975362,
+        "zero_brier": 0.02952501943054269
+      },
+      {
+        "mean_range": [
+          0.1,
+          1.0
+        ],
+        "genes": 34,
+        "common_theta_deviance_explained": 0.03495817336611884,
+        "nll_per_entry": 0.5178183134997787,
+        "observed_zero_fraction": 0.8472058823529411,
+        "predicted_zero_fraction": 0.8394021693447298,
+        "zero_brier": 0.12160928791155592
+      },
+      {
+        "mean_range": [
+          1.0,
+          null
+        ],
+        "genes": 4,
+        "common_theta_deviance_explained": 0.2331551002750012,
+        "nll_per_entry": 1.9187501037465784,
+        "observed_zero_fraction": 0.35375,
+        "predicted_zero_fraction": 0.4107367966849266,
+        "zero_brier": 0.18451994793354623
+      }
+    ],
+    "warnings": [
+      "did not converge: max_iter after 30 iterations (physical residual 109)"
+    ]
+  }
+]

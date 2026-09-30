@@ -1,0 +1,23 @@
+{
+  "seed": 1,
+  "data_sha256": "e433fd9a8df00444f0098d8c6dc7fc752e0baf4020e2b4e4dae53b336a0cc85a",
+  "fit_seconds": 3.3826472889631987,
+  "transform_seconds": 0.4268157407641411,
+  "final_objective": 16758.250755130302,
+  "train_nll": 16625.193145893485,
+  "held_out_nll": 6414.91903214256,
+  "basis_max_error": 0.0,
+  "usage_correlations": [
+    0.8626351636971117,
+    0.9092745318656438,
+    null
+  ],
+  "n_iter": 38,
+  "converged": true,
+  "stop_reason": null,
+  "stationarity": null,
+  "transform_converged": null,
+  "warnings": [
+    "degenerate or duplicated factors detected (see component_stats_); this is evidence about n_components, factors were not dropped"
+  ]
+}

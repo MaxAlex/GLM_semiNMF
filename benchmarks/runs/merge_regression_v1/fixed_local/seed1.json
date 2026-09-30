@@ -1,0 +1,48 @@
+{
+  "seed": 1,
+  "data_sha256": "e433fd9a8df00444f0098d8c6dc7fc752e0baf4020e2b4e4dae53b336a0cc85a",
+  "fit_seconds": 143.9663939792663,
+  "transform_seconds": 0.12572097219526768,
+  "final_objective": 16196.469077136891,
+  "train_nll": 15893.892148563054,
+  "held_out_nll": 6223.673165030104,
+  "basis_max_error": 0.0,
+  "usage_correlations": [
+    0.9396676667208862,
+    0.9174728307678603,
+    0.8819825481310578
+  ],
+  "n_iter": 1000,
+  "converged": false,
+  "stop_reason": "max_iter",
+  "stationarity": {
+    "blocks": {
+      "G": 2.4773215332452025e-06,
+      "a": 0.00031231985899832226,
+      "gamma": 0.002299551437170644
+    },
+    "max_residual": 0.002299551437170644,
+    "feasibility": 0.0,
+    "tolerance": 0.001,
+    "finite": true,
+    "max_contribution": 7.96807492356047,
+    "safeguard_active": false,
+    "predictor": {
+      "eta_min": -31.447984356205392,
+      "eta_max": 7.083804944883921,
+      "entries_outside_moment_range": 24
+    },
+    "scaled_blocks": {
+      "G": 2.252110484768366e-06,
+      "a": 0.00031231985899832226,
+      "gamma": 0.002299551437170644
+    },
+    "passed": false,
+    "numerical_floor": null
+  },
+  "transform_converged": true,
+  "warnings": [
+    "did not converge: max_iter after 1000 iterations (physical residual 0.0023)",
+    "24 fitted predictor entries lie outside +/-30, where moment estimation and deviance use a clamped mean; deviance_explained_ and theta_ are approximate there. Inspect stationarity_['predictor'] and component_stats_"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "arguments": {
+    "out": "benchmarks/runs/merge_regression_v1/fixed_incoming",
+    "seeds": [
+      0,
+      1
+    ],
+    "max_iter": 1000,
+    "device": "cpu"
+  },
+  "package_path": "/tmp/glm-merge-parents/incoming/src/glm_seminmf",
+  "torch_version": "2.13.0+cu130",
+  "numpy_version": "2.5.2",
+  "source_sha256": {
+    "/tmp/glm-merge-parents/incoming/src/glm_seminmf/__init__.py": "aeccf500a60568a26a503dcfacd468abcd24738ad2792d6e4211063d8bd3504c",
+    "/tmp/glm-merge-parents/incoming/src/glm_seminmf/_dispersion.py": "48d0b0c39f9fa167d9d4d65c9dc7386914c310b2438946e15b62f40e81465a4a",
+    "/tmp/glm-merge-parents/incoming/src/glm_seminmf/_fitting.py": "3344cc2390535afeaa04bbac85573189d3c341ae03bd3c9350c585765aa04107",
+    "/tmp/glm-merge-parents/incoming/src/glm_seminmf/_init.py": "c08dc312411e693b878b2dfdbb3c59bf9846b20dc8067221d695df6f45a02370",
+    "/tmp/glm-merge-parents/incoming/src/glm_seminmf/_inputs.py": "c67f101d4197670305a0a97c87b65b2ca618da1f8a221863d12eeeb3365364ed",
+    "/tmp/glm-merge-parents/incoming/src/glm_seminmf/_likelihood.py": "9f6cf33cbf60a6979f9ac2722c1c0fd289bc89db1d62f3820f3335214051200e",
+    "/tmp/glm-merge-parents/incoming/src/glm_seminmf/adapters.py": "b8adc0bb0eca694edba735a7332651ce99a1a551beb60acc3cc097066dbab373",
+    "/tmp/glm-merge-parents/incoming/src/glm_seminmf/model.py": "de02980d43cf5b43d1438846ac9cc6621ce47017f9717ba86a1e90949408a2db",
+    "/tmp/glm-merge-parents/incoming/src/glm_seminmf/simulate.py": "946b8fec69c267598fdb58023590b77ea8810b9a90dfd1e835f0abd518674009",
+    "/home/max/codestuff/glm_seminmf/benchmarks/bench_fixed_basis.py": "3b4819cb28677e6ad358aaa60d28b02d024d6c5157a445fd54e6d04ea9819fc2"
+  },
+  "note": "Same data, penalties, precision, and iteration cap; native solver defaults. Parent convergence flags use different definitions. Held-out NLL scores new cells with all genes observed, not withheld-gene prediction."
+}

@@ -1,7 +1,7 @@
 """Input validation and covariate encoding.
 
 The core accepts ``X`` as scipy CSR/CSC or dense ndarray, oriented
-features x samples, raw integer counts only. ``Z`` is samples x covariates;
+features x samples, non-negative counts. ``Z`` is samples x covariates;
 a pandas DataFrame is one-hot encoded with a dropped reference level per
 categorical column.
 """
@@ -17,13 +17,34 @@ import scipy.sparse as sp
 # sparse inputs stay sparse and may differ from dense in the last float digits.
 _DENSIFY_ELEMENTS = 50_000_000
 
+# A non-integer matrix whose largest entry is below this is almost certainly normalized
+# (log1p-CPM tops out around 10-12); real count data, ambient-corrected or not, goes far
+# higher. Only used to reject obviously-normalized input — see validate_X.
+_NORMALIZED_MAX = 30.0
+
 
 def validate_X(X) -> tuple[sp.csc_matrix | np.ndarray, int, int]:
     """Validate counts and return ``(X, p, n)`` with sparse input as CSC
     (small sparse inputs are densified — see ``_DENSIFY_ELEMENTS``).
 
     CSC because fitting streams over contiguous sample (column) chunks.
-    Raises on non-integer or negative values instead of silently rounding.
+
+    **Non-integer counts are accepted.** The NB2 likelihood is defined for any real
+    ``x >= 0``: the only ``x``-dependent gamma term is ``lgamma(x + 1)``, the continuous
+    extension of ``log(x!)``, and the deviance uses ``xlogy(x, x)``, which is likewise
+    continuous and zero at ``x = 0``. Nothing in the fitter counts events. This matters for
+    ambient-corrected input — CellBender emits non-integer posterior means, and rounding
+    them would discard the correction's precision at low expression, where it does the most
+    work.
+
+    Negatives still raise: they are outside the NB support and are almost always a sign that
+    something has been centred or residualised upstream.
+
+    Values that look *normalized* rather than merely fractional still raise, because the
+    model does its own normalization through the exposure term and silently fitting
+    log1p-CPM would be a quiet, hard-to-notice error. The test is deliberately narrow — a
+    non-integer matrix whose maximum is below ``_NORMALIZED_MAX`` — so ambient-corrected
+    counts, which keep count-scale magnitudes, pass.
     """
     if sp.issparse(X):
         X = X.tocsc()
@@ -37,15 +58,19 @@ def validate_X(X) -> tuple[sp.csc_matrix | np.ndarray, int, int]:
         )
     if X.ndim != 2:
         raise ValueError(f"X must be 2-D (features x samples), got shape {X.shape}")
-    if data.size and not np.issubdtype(data.dtype, np.integer):
-        if np.any(data != np.floor(data)):
-            raise ValueError(
-                "X must contain raw integer counts; found non-integer values. "
-                "The model does its own normalization via the exposure term — "
-                "pass unnormalized counts."
-            )
+    if data.size and not np.isfinite(data).all():
+        raise ValueError("X must contain finite counts")
     if data.size and data.min() < 0:
         raise ValueError("X must contain non-negative counts")
+    if data.size and not np.issubdtype(data.dtype, np.integer):
+        if np.any(data != np.floor(data)) and data.max() < _NORMALIZED_MAX:
+            raise ValueError(
+                f"X looks normalized: non-integer values with a maximum of {data.max():.3g}, "
+                f"below the {_NORMALIZED_MAX} threshold for count-scale data. The model does "
+                "its own normalization via the exposure term — pass counts, not log1p/CPM. "
+                "Non-integer counts themselves are fine (e.g. CellBender output); it is the "
+                "small dynamic range that looks wrong here."
+            )
     p, n = X.shape
     if sp.issparse(X) and p * n <= _DENSIFY_ELEMENTS:
         # C order: CSC.toarray() yields F-order, whose different BLAS

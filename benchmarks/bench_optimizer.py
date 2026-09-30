@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import multiprocessing as mp
 import os
@@ -118,10 +119,15 @@ def main():
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=False)  # never overwrite earlier runs
     root = Path(__file__).resolve().parents[1]
-    sources = [*sorted((root/'src/glm_seminmf').glob('*.py')), Path(__file__).resolve()]
+    # PYTHONPATH can select a parent revision for a before/after comparison.
+    # Hash the code actually imported, not necessarily the working tree.
+    package = Path(importlib.util.find_spec('glm_seminmf').origin).parent
+    sources = [*sorted(package.glob('*.py')), Path(__file__).resolve()]
     protocol = dict(arguments={k: str(v) if isinstance(v, Path) else v for k,v in vars(args).items()},
                     revision=subprocess.check_output(['git','rev-parse','HEAD'], cwd=root, text=True).strip(),
-                    source_sha256={str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},
+                    package_path=str(package),
+                    source_sha256={str(p.relative_to(root)) if p.is_relative_to(root) else str(p):
+                                   hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},
                     note='Synthetic fixed-theta screen; unresolved budgets are not successes or biological negatives.')
     (args.out/'protocol.json').write_text(json.dumps(protocol, indent=2)+'\n')
     grid = [(c,0.,g) for c in [.0001,.001,.01] for g in [.01,.1,1.]] + [(.001,10.,0.),(.001,0.,0.)]

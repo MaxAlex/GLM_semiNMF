@@ -1,0 +1,46 @@
+[
+  {
+    "seed": 0,
+    "data_sha256": "51f64096db12810768af48e796062f85f4b2d8848d4a081c574df3190960c232",
+    "fit_seconds": 10.2550457585603,
+    "transform_seconds": 0.4118326399475336,
+    "final_objective": 18343.09106571622,
+    "train_nll": 18154.52647401787,
+    "held_out_nll": 7136.0127259633555,
+    "basis_max_error": 0.0,
+    "usage_correlations": [
+      0.9416818585797515,
+      0.8816836361827017,
+      0.7191516344843941
+    ],
+    "n_iter": 35,
+    "converged": true,
+    "stop_reason": null,
+    "stationarity": null,
+    "transform_converged": null,
+    "warnings": []
+  },
+  {
+    "seed": 1,
+    "data_sha256": "e433fd9a8df00444f0098d8c6dc7fc752e0baf4020e2b4e4dae53b336a0cc85a",
+    "fit_seconds": 3.3826472889631987,
+    "transform_seconds": 0.4268157407641411,
+    "final_objective": 16758.250755130302,
+    "train_nll": 16625.193145893485,
+    "held_out_nll": 6414.91903214256,
+    "basis_max_error": 0.0,
+    "usage_correlations": [
+      0.8626351636971117,
+      0.9092745318656438,
+      null
+    ],
+    "n_iter": 38,
+    "converged": true,
+    "stop_reason": null,
+    "stationarity": null,
+    "transform_converged": null,
+    "warnings": [
+      "degenerate or duplicated factors detected (see component_stats_); this is evidence about n_components, factors were not dropped"
+    ]
+  }
+]

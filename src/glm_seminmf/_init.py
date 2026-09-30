@@ -47,15 +47,16 @@ def _svd_init(Y, k: int, rng: np.random.Generator, gamma0, Zc):
         ones_n = np.ones(n)
 
         def mv(v):
-            v = np.asarray(v).reshape(-1)
-            out = Y @ v - row_means * v.sum()
+            # ARPACK may pass column vectors; keep both operands one-dimensional.
+            v = np.ravel(v)
+            out = np.ravel(Y @ v) - row_means * v.sum()
             if gamma0 is not None:
                 out = out - gamma0 @ (Zc.T @ v)
             return out
 
         def rmv(u):
-            u = np.asarray(u).reshape(-1)
-            out = Y.T @ u - ones_n * (row_means @ u)
+            u = np.ravel(u)
+            out = np.ravel(Y.T @ u) - ones_n * (row_means @ u)
             if gamma0 is not None:
                 out = out - Zc @ (gamma0.T @ u)
             return out

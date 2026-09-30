@@ -1,0 +1,145 @@
+{
+  "config": {
+    "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/synthetic_merged",
+    "mode": "fit",
+    "real_npz": null,
+    "genes": 300,
+    "cells": 400,
+    "cases": [
+      "sparse",
+      "moderate"
+    ],
+    "profiles": [
+      "legacy",
+      "combined"
+    ],
+    "seeds": [
+      0
+    ],
+    "max_iter": 300,
+    "seconds": 180.0,
+    "device": "cuda",
+    "dtype": "float64",
+    "threads": 1,
+    "reuse_step_size": false,
+    "case": "sparse",
+    "seed": 0,
+    "profile": "combined",
+    "calibration_file": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/synthetic_merged/calibration_sparse.json"
+  },
+  "shape": [
+    300,
+    400
+  ],
+  "zero_fraction": 0.9593083333333333,
+  "mean_count": 0.05198333333333333,
+  "fit_seconds": 27.075756145641208,
+  "extra_start_seconds": 11.551613606512547,
+  "n_iter": 300,
+  "converged": false,
+  "stop_reason": "max_iter",
+  "residual": 0.5379716955060161,
+  "work": {
+    "derivative_passes": 3000,
+    "line_search_trials": 3305
+  },
+  "l1_G": 0.04213030735451959,
+  "initial_objective": 13644.085517671627,
+  "final_objective": 12855.89451146586,
+  "peak_gpu_mb": 18.68994140625,
+  "collapsed": 0,
+  "rare": 0,
+  "zero_usage_fraction": 0.5877777777777777,
+  "common_null": {
+    "stop_reason": "max_iter",
+    "converged": false,
+    "theta_sha256": "937d650be8b409238207dd6f437cc1f8a70543fe79672568f06e63b848016b76",
+    "seconds": 16.3736872933805,
+    "config": {
+      "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/synthetic_merged",
+      "mode": "fit",
+      "real_npz": null,
+      "genes": 300,
+      "cells": 400,
+      "cases": [
+        "sparse",
+        "moderate"
+      ],
+      "profiles": [
+        "legacy",
+        "combined"
+      ],
+      "seeds": [
+        0
+      ],
+      "max_iter": 300,
+      "seconds": 180.0,
+      "device": "cuda",
+      "dtype": "float64",
+      "threads": 1,
+      "reuse_step_size": false,
+      "case": "sparse"
+    }
+  },
+  "transform": {
+    "converged": true,
+    "stop_reason": "stationary",
+    "seconds": 0.08958171494305134
+  },
+  "score": {
+    "common_theta_deviance_explained": 0.01865009950750285,
+    "nll_per_entry": 0.14264739997500048,
+    "observed_zero_fraction": 0.9701666666666666,
+    "predicted_zero_fraction": 0.972561052735884,
+    "zero_brier": 0.027548229960497973
+  },
+  "calibration": [
+    {
+      "mean_range": [
+        0.0,
+        0.01
+      ],
+      "genes": 13,
+      "common_theta_deviance_explained": -0.0004115107637658877,
+      "nll_per_entry": 0.09607757489910156,
+      "observed_zero_fraction": 0.9923076923076923,
+      "predicted_zero_fraction": 0.994402629739413,
+      "zero_brier": 0.0076654957536996145
+    },
+    {
+      "mean_range": [
+        0.01,
+        0.1
+      ],
+      "genes": 43,
+      "common_theta_deviance_explained": 0.0009977580011696352,
+      "nll_per_entry": 0.13945277034337747,
+      "observed_zero_fraction": 0.9693023255813954,
+      "predicted_zero_fraction": 0.9716260840460472,
+      "zero_brier": 0.02908936433344056
+    },
+    {
+      "mean_range": [
+        0.1,
+        1.0
+      ],
+      "genes": 4,
+      "common_theta_deviance_explained": 0.14148979321747335,
+      "nll_per_entry": 0.3283416000116192,
+      "observed_zero_fraction": 0.9075,
+      "predicted_zero_fraction": 0.91162684089016,
+      "zero_brier": 0.07559992162345981
+    }
+  ],
+  "warnings": [
+    "did not converge: max_iter after 300 iterations (physical residual 0.538)",
+    "99 fitted predictor entries lie outside +/-30, where moment estimation and deviance use a clamped mean; deviance_explained_ and theta_ are approximate there. Inspect stationarity_['predictor'] and component_stats_"
+  ],
+  "loading_recovery": 0.5484892376576854,
+  "usage_correlations": [
+    0.7175079824198966,
+    0.2101749751273962,
+    0.7808643830673632
+  ],
+  "log_theta_rmse": 1.1768580636701333
+}

@@ -1,0 +1,154 @@
+{
+  "config": {
+    "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local",
+    "mode": "fit",
+    "real_npz": "/home/max/codestuff/glm_seminmf/benchmarks/data/naive_cd4_discovery_800.npz",
+    "genes": 300,
+    "cells": 400,
+    "cases": [
+      "sparse",
+      "moderate",
+      "rare_correlated"
+    ],
+    "profiles": [
+      "legacy",
+      "ridge",
+      "combined"
+    ],
+    "seeds": [
+      0
+    ],
+    "max_iter": 30,
+    "seconds": 180.0,
+    "device": "cuda",
+    "dtype": "float64",
+    "threads": 1,
+    "reuse_step_size": false,
+    "case": "real",
+    "seed": 0,
+    "profile": "ridge",
+    "calibration_file": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local/calibration_real.json"
+  },
+  "shape": [
+    2000,
+    800
+  ],
+  "zero_fraction": 0.97426375,
+  "mean_count": 0.0585475,
+  "fit_seconds": 6.138425204902887,
+  "extra_start_seconds": 0.7371086832135916,
+  "n_iter": 30,
+  "converged": false,
+  "stop_reason": "max_iter",
+  "residual": 188.30543541753295,
+  "work": {
+    "derivative_passes": 300,
+    "line_search_trials": 444
+  },
+  "l1_G": 0.02,
+  "initial_objective": 115286.65765772342,
+  "final_objective": 111165.75319433196,
+  "peak_gpu_mb": 148.162109375,
+  "collapsed": 0,
+  "rare": 0,
+  "zero_usage_fraction": 0.256,
+  "common_null": {
+    "stop_reason": "stationary",
+    "converged": true,
+    "theta_sha256": "6b3601d4117b3630caff0bd22177e0d650191408c3d0cbe0304391698ba9df5e",
+    "seconds": 1.0521473065018654,
+    "config": {
+      "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/real_local",
+      "mode": "fit",
+      "real_npz": "/home/max/codestuff/glm_seminmf/benchmarks/data/naive_cd4_discovery_800.npz",
+      "genes": 300,
+      "cells": 400,
+      "cases": [
+        "sparse",
+        "moderate",
+        "rare_correlated"
+      ],
+      "profiles": [
+        "legacy",
+        "ridge",
+        "combined"
+      ],
+      "seeds": [
+        0
+      ],
+      "max_iter": 30,
+      "seconds": 180.0,
+      "device": "cuda",
+      "dtype": "float64",
+      "threads": 1,
+      "reuse_step_size": false,
+      "case": "real"
+    }
+  },
+  "transform": {
+    "converged": false,
+    "stop_reason": "max_iter",
+    "seconds": 1.7350171115249395
+  },
+  "score": {
+    "common_theta_deviance_explained": 0.02837949593990241,
+    "nll_per_entry": 0.11383515642670741,
+    "observed_zero_fraction": 0.9716,
+    "predicted_zero_fraction": 0.9701911751956417,
+    "zero_brier": 0.02086194801455296
+  },
+  "calibration": [
+    {
+      "mean_range": [
+        0.0,
+        0.01
+      ],
+      "genes": 257,
+      "common_theta_deviance_explained": -0.04138809514803232,
+      "nll_per_entry": 0.015610018071683643,
+      "observed_zero_fraction": 0.9986770428015564,
+      "predicted_zero_fraction": 0.9988146909734201,
+      "zero_brier": 0.0013186171425934505
+    },
+    {
+      "mean_range": [
+        0.01,
+        0.1
+      ],
+      "genes": 105,
+      "common_theta_deviance_explained": 0.0063085869422166985,
+      "nll_per_entry": 0.1552194407676443,
+      "observed_zero_fraction": 0.9691428571428572,
+      "predicted_zero_fraction": 0.9618104181792748,
+      "zero_brier": 0.02954018405716243
+    },
+    {
+      "mean_range": [
+        0.1,
+        1.0
+      ],
+      "genes": 34,
+      "common_theta_deviance_explained": 0.035922417651600425,
+      "nll_per_entry": 0.5175679454168517,
+      "observed_zero_fraction": 0.8472058823529411,
+      "predicted_zero_fraction": 0.8389575666358715,
+      "zero_brier": 0.1213964814329959
+    },
+    {
+      "mean_range": [
+        1.0,
+        null
+      ],
+      "genes": 4,
+      "common_theta_deviance_explained": 0.2607124025089972,
+      "nll_per_entry": 1.9067341253711638,
+      "observed_zero_fraction": 0.35375,
+      "predicted_zero_fraction": 0.46661083091104727,
+      "zero_brier": 0.19417372636268815
+    }
+  ],
+  "warnings": [
+    "did not converge: max_iter after 30 iterations (physical residual 188)",
+    "transform did not converge: max_iter"
+  ]
+}

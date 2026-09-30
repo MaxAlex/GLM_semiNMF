@@ -1,0 +1,176 @@
+[
+  {
+    "config": {
+      "p": 500,
+      "n": 200,
+      "n_test": 100,
+      "seed": 0,
+      "cF": 0.001,
+      "l1_G": 0.0,
+      "l2_G": 0.1,
+      "threads": 1,
+      "dtype": "float64",
+      "device": "cuda",
+      "max_iter": 2000,
+      "seconds": 180.0,
+      "stationarity_tol": 0.001
+    },
+    "torch_version": "2.13.0+cu130",
+    "numpy_version": "2.5.2",
+    "density": 0.27726,
+    "wall_seconds": 12.39542730525136,
+    "peak_cpu_rss_mb": 1103.67578125,
+    "peak_gpu_mb": 19.9404296875,
+    "initial_objective": 87025.27344938206,
+    "final_objective": 72975.11316938941,
+    "objective_components": {
+      "nll": 71822.16874094275,
+      "loading_l1": 13.141024154076213,
+      "usage_l1": 0.0,
+      "usage_l2": 1139.80340429259,
+      "total": 72975.11316938941
+    },
+    "stationarity": {
+      "blocks": {
+        "G": 8.238453537146029e-06,
+        "F": 0.0008078279916787778,
+        "a": 9.809761346524226e-05
+      },
+      "max_residual": 0.0008078279916787778,
+      "feasibility": 1.1102230246251565e-16,
+      "tolerance": 0.001,
+      "finite": true,
+      "max_contribution": 8.527220210592196,
+      "safeguard_active": false,
+      "predictor": {
+        "eta_min": -27.5280815369151,
+        "eta_max": 8.149972063484707,
+        "entries_outside_moment_range": 0
+      },
+      "scaled_blocks": {
+        "G": 8.238453537146029e-06,
+        "F": 0.0006731899930656482,
+        "a": 9.809761346524226e-05
+      },
+      "passed": true,
+      "numerical_floor": null
+    },
+    "n_iter": 261,
+    "best_iteration": 261,
+    "converged": true,
+    "timed_out": false,
+    "stop_reason": "stationary",
+    "dispersion_status": "fixed",
+    "theta_updates": 0,
+    "zero_usage_fraction": 0.453,
+    "warnings": [],
+    "phase_seconds": {
+      "initialization": 0.260149996727705,
+      "optimization_and_certification": 11.995976831763983,
+      "finalization": 0.13904397003352642
+    },
+    "safeguard_active": false,
+    "predictor": {
+      "eta_min": -27.5280815369151,
+      "eta_max": 8.149972063484707,
+      "entries_outside_moment_range": 0
+    },
+    "transform": {
+      "wall_seconds": 0.0804635863751173,
+      "n_test": 100,
+      "n_iter": 4,
+      "converged": true,
+      "stop_reason": "stationary",
+      "max_residual": 9.43666473369742e-05,
+      "objective": 37580.76637409811,
+      "warnings": []
+    }
+  },
+  {
+    "config": {
+      "p": 2000,
+      "n": 200,
+      "n_test": 100,
+      "seed": 0,
+      "cF": 0.001,
+      "l1_G": 0.0,
+      "l2_G": 0.1,
+      "threads": 1,
+      "dtype": "float64",
+      "device": "cuda",
+      "max_iter": 2000,
+      "seconds": 180.0,
+      "stationarity_tol": 0.001
+    },
+    "torch_version": "2.13.0+cu130",
+    "numpy_version": "2.5.2",
+    "density": 0.276055,
+    "wall_seconds": 12.502720849588513,
+    "peak_cpu_rss_mb": 1125.74609375,
+    "peak_gpu_mb": 55.21142578125,
+    "initial_objective": 353446.4112262573,
+    "final_objective": 290524.24749082106,
+    "objective_components": {
+      "nll": 286056.4527610871,
+      "loading_l1": 26.67902514583816,
+      "usage_l1": 0.0,
+      "usage_l2": 4441.115704588119,
+      "total": 290524.24749082106
+    },
+    "stationarity": {
+      "blocks": {
+        "G": 1.257119923181449e-05,
+        "F": 0.0007417484947040975,
+        "a": 6.808011856662688e-05
+      },
+      "max_residual": 0.0007417484947040975,
+      "feasibility": 1.1102230246251565e-16,
+      "tolerance": 0.001,
+      "finite": true,
+      "max_contribution": 11.450802409075033,
+      "safeguard_active": false,
+      "predictor": {
+        "eta_min": -6.592328263993934,
+        "eta_max": 10.602987412533444,
+        "entries_outside_moment_range": 0
+      },
+      "scaled_blocks": {
+        "G": 1.257119923181449e-05,
+        "F": 0.000618123745586748,
+        "a": 6.808011856662688e-05
+      },
+      "passed": true,
+      "numerical_floor": null
+    },
+    "n_iter": 199,
+    "best_iteration": 199,
+    "converged": true,
+    "timed_out": false,
+    "stop_reason": "stationary",
+    "dispersion_status": "fixed",
+    "theta_updates": 0,
+    "zero_usage_fraction": 0.534,
+    "warnings": [],
+    "phase_seconds": {
+      "initialization": 0.30446894094347954,
+      "optimization_and_certification": 11.545208839699626,
+      "finalization": 0.6527340952306986
+    },
+    "safeguard_active": false,
+    "predictor": {
+      "eta_min": -6.592328263993934,
+      "eta_max": 10.602987412533444,
+      "entries_outside_moment_range": 0
+    },
+    "transform": {
+      "wall_seconds": 0.062136925756931305,
+      "n_test": 100,
+      "n_iter": 2,
+      "converged": true,
+      "stop_reason": "stationary",
+      "max_residual": 0.00014850073576555545,
+      "objective": 152313.6567559039,
+      "warnings": []
+    }
+  }
+]

@@ -1,0 +1,42 @@
+{
+  "arguments": {
+    "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/synthetic_merged",
+    "mode": "fit",
+    "real_npz": null,
+    "genes": 300,
+    "cells": 400,
+    "cases": [
+      "sparse",
+      "moderate"
+    ],
+    "profiles": [
+      "legacy",
+      "combined"
+    ],
+    "seeds": [
+      0
+    ],
+    "max_iter": 300,
+    "seconds": 180.0,
+    "device": "cuda",
+    "dtype": "float64",
+    "threads": 1,
+    "reuse_step_size": false
+  },
+  "revision": "62b024cadde52e76189c26ae82caff1dfdcab551",
+  "package_path": "/home/max/codestuff/glm_seminmf/src/glm_seminmf",
+  "source_sha256": {
+    "/home/max/codestuff/glm_seminmf/src/glm_seminmf/__init__.py": "aeccf500a60568a26a503dcfacd468abcd24738ad2792d6e4211063d8bd3504c",
+    "/home/max/codestuff/glm_seminmf/src/glm_seminmf/_dispersion.py": "ad0cac24fb07bc4dc96b98c533cfe84f4b61e28991340e4189233fbb214a9323",
+    "/home/max/codestuff/glm_seminmf/src/glm_seminmf/_fitting.py": "5e8967944d93a1237da27080e3b0029da1980248b44098eb544ca7ac272afb17",
+    "/home/max/codestuff/glm_seminmf/src/glm_seminmf/_init.py": "bdd2baa43ac745eb19503fffd7b50e503534f4d8216c7e711e16f4cce875162d",
+    "/home/max/codestuff/glm_seminmf/src/glm_seminmf/_inputs.py": "02823dc14779d9caccb3eb4e2ee9ad1936e186003e47283eff1d48696cac26f6",
+    "/home/max/codestuff/glm_seminmf/src/glm_seminmf/_likelihood.py": "2d7fb8655ad8e48770503fc5b18b2e58501b4e6c8c209aafdc599d647067252d",
+    "/home/max/codestuff/glm_seminmf/src/glm_seminmf/adapters.py": "0ea2e8be9bf91d625439cdf9dea163c9148cd120175eab0c099511d13a0ba42f",
+    "/home/max/codestuff/glm_seminmf/src/glm_seminmf/model.py": "a1adc2840af7009fc0b0036f7676d252d184d6642bac130294700ff820a29f8c",
+    "/home/max/codestuff/glm_seminmf/src/glm_seminmf/simulate.py": "146b3f1ce53a0643d66af0c09a19527fb25e9d7dbb5226c99838af312128b448",
+    "/home/max/codestuff/glm_seminmf/benchmarks/bench_single_cell.py": "144f2ccb58850de10df355f1a6b25f7353623739ab1cf68af7b31f8915e34d77",
+    "/home/max/codestuff/glm_seminmf/benchmarks/scoring.py": "777a3ce6a17507ec29ecb288e29f2932c46c3b268393d414df73f8e91d45d741"
+  },
+  "note": "20% of genes withheld from transform; common theta estimated on training cells only. Real-data scores condition on observed full-library sizes; preselected panel is exploratory."
+}

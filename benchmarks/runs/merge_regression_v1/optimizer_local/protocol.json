@@ -1,0 +1,37 @@
+{
+  "arguments": {
+    "out": "benchmarks/runs/merge_regression_v1/optimizer_local",
+    "genes": [
+      500,
+      2000
+    ],
+    "samples": 200,
+    "test_samples": 100,
+    "seeds": [
+      0
+    ],
+    "seconds": 180.0,
+    "max_iter": 2000,
+    "threads": 1,
+    "dtype": "float64",
+    "device": "cuda",
+    "stationarity_tol": 0.001,
+    "full_grid": false
+  },
+  "revision": "62b024cadde52e76189c26ae82caff1dfdcab551",
+  "source_sha256": {
+    "/tmp/glm-merge-parents/local/src/glm_seminmf/simulate.py": "4bea792e1a7622b5c9d8ea3647b36704fd3382699fc62d071f3791821b26cc17",
+    "/tmp/glm-merge-parents/local/src/glm_seminmf/_init.py": "4c69249b6e39ee65980fe9891e9bc7ac2b033ee0375f6a89e0f914972b6b5dc0",
+    "/tmp/glm-merge-parents/local/src/glm_seminmf/model.py": "ec11ecc1652d8e81ed1635790844151184782e6193f0166f875eca515a53b9d2",
+    "/tmp/glm-merge-parents/local/src/glm_seminmf/_likelihood.py": "2d7fb8655ad8e48770503fc5b18b2e58501b4e6c8c209aafdc599d647067252d",
+    "/tmp/glm-merge-parents/local/src/glm_seminmf/_inputs.py": "33b9b1c259d2a943ddd2528034b9a4bc7d994d0cff64cc1ca58338381b4fe81b",
+    "/tmp/glm-merge-parents/local/src/glm_seminmf/adapters.py": "0ea2e8be9bf91d625439cdf9dea163c9148cd120175eab0c099511d13a0ba42f",
+    "/tmp/glm-merge-parents/local/src/glm_seminmf/_fitting.py": "5e8967944d93a1237da27080e3b0029da1980248b44098eb544ca7ac272afb17",
+    "/tmp/glm-merge-parents/local/src/glm_seminmf/__init__.py": "7b3edad193e26992ed985b6ff18a8ddbc7b12e97f3831639f0026ec5cc44aa1f",
+    "/tmp/glm-merge-parents/local/src/glm_seminmf/_dispersion.py": "ad0cac24fb07bc4dc96b98c533cfe84f4b61e28991340e4189233fbb214a9323",
+    "benchmarks/bench_optimizer.py": "9144130e329a2458ef70c7bf01b27158e87fa2bde571eca742c3d800110452a3"
+  },
+  "note": "Synthetic fixed-theta screen; unresolved budgets are not successes or biological negatives.",
+  "package_path": "/tmp/glm-merge-parents/local/src/glm_seminmf",
+  "provenance_note": "Package hashes corrected after run: original harness hashed workspace source even when PYTHONPATH selected the local parent. Harness hash is the version used at execution."
+}

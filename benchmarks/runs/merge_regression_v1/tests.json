@@ -1,0 +1,30 @@
+{
+  "total_unique_tests": 154,
+  "runs": [
+    {
+      "command": "python -m pytest -q -n 4 --tb=short",
+      "passed": 135,
+      "seconds": 791.22,
+      "note": "Full suite collected before the additional 19 regression cases were added."
+    },
+    {
+      "command": "python -m pytest -q -n 2 tests/test_sparse_init.py tests/test_f_fixed_fit.py tests/test_simulate.py --tb=short",
+      "passed": 30,
+      "seconds": 320.82,
+      "note": "Includes 13 additional cases."
+    },
+    {
+      "command": "python -m pytest -q tests/test_inputs.py --tb=short",
+      "passed": 17,
+      "seconds": 5.95,
+      "note": "Includes six additional finite-input cases."
+    }
+  ],
+  "collection": "154 tests collected",
+  "additional_checks": [
+    "compileall",
+    "git diff --check",
+    "no unmerged paths",
+    "benchmark comparison assertions"
+  ]
+}

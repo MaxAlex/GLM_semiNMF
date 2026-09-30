@@ -1,0 +1,52 @@
+[
+  {
+    "config": {
+      "out": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/timing_merged",
+      "mode": "timing",
+      "real_npz": null,
+      "genes": 1000,
+      "cells": 3000,
+      "cases": [
+        "sparse",
+        "moderate",
+        "rare_correlated"
+      ],
+      "profiles": [
+        "legacy",
+        "small_l1",
+        "ridge",
+        "information",
+        "pearson",
+        "pooled",
+        "shared",
+        "combined"
+      ],
+      "seeds": [
+        0,
+        1
+      ],
+      "max_iter": 1000,
+      "seconds": 30,
+      "device": "cuda",
+      "dtype": "float64",
+      "threads": 1,
+      "reuse_step_size": false,
+      "case": "timing",
+      "seed": 0,
+      "profile": "timing",
+      "calibration_file": "/home/max/codestuff/glm_seminmf/benchmarks/runs/merge_regression_v1/timing_merged/calibration_timing.json"
+    },
+    "seconds": [
+      1.1084312070161104,
+      1.098009629175067,
+      1.0971286464482546
+    ],
+    "median_seconds": 1.098009629175067,
+    "work": {
+      "derivative_passes": 50,
+      "line_search_trials": 51
+    },
+    "final_objective": 945139.464556145,
+    "torch_version": "2.13.0+cu130"
+  }
+]

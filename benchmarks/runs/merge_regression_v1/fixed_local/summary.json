@@ -1,0 +1,97 @@
+[
+  {
+    "seed": 0,
+    "data_sha256": "51f64096db12810768af48e796062f85f4b2d8848d4a081c574df3190960c232",
+    "fit_seconds": 139.70433306135237,
+    "transform_seconds": 0.03179208002984524,
+    "final_objective": 17831.695731450487,
+    "train_nll": 17518.654128991555,
+    "held_out_nll": 6967.904307265178,
+    "basis_max_error": 0.0,
+    "usage_correlations": [
+      0.9502453403036,
+      0.8880482167134542,
+      0.8686126752608987
+    ],
+    "n_iter": 1000,
+    "converged": false,
+    "stop_reason": "max_iter",
+    "stationarity": {
+      "blocks": {
+        "G": 3.552713678800501e-15,
+        "a": 0.0011170649230057839,
+        "gamma": 0.0003199640276903004
+      },
+      "max_residual": 0.0011170649230057839,
+      "feasibility": 0.0,
+      "tolerance": 0.001,
+      "finite": true,
+      "max_contribution": 7.810547877431112,
+      "safeguard_active": false,
+      "predictor": {
+        "eta_min": -28.073021289618783,
+        "eta_max": 6.6388087463864665,
+        "entries_outside_moment_range": 0
+      },
+      "scaled_blocks": {
+        "G": 3.2297397080004553e-15,
+        "a": 0.0011170649230057839,
+        "gamma": 0.0003199640276903004
+      },
+      "passed": false,
+      "numerical_floor": null
+    },
+    "transform_converged": true,
+    "warnings": [
+      "did not converge: max_iter after 1000 iterations (physical residual 0.00112)"
+    ]
+  },
+  {
+    "seed": 1,
+    "data_sha256": "e433fd9a8df00444f0098d8c6dc7fc752e0baf4020e2b4e4dae53b336a0cc85a",
+    "fit_seconds": 143.9663939792663,
+    "transform_seconds": 0.12572097219526768,
+    "final_objective": 16196.469077136891,
+    "train_nll": 15893.892148563054,
+    "held_out_nll": 6223.673165030104,
+    "basis_max_error": 0.0,
+    "usage_correlations": [
+      0.9396676667208862,
+      0.9174728307678603,
+      0.8819825481310578
+    ],
+    "n_iter": 1000,
+    "converged": false,
+    "stop_reason": "max_iter",
+    "stationarity": {
+      "blocks": {
+        "G": 2.4773215332452025e-06,
+        "a": 0.00031231985899832226,
+        "gamma": 0.002299551437170644
+      },
+      "max_residual": 0.002299551437170644,
+      "feasibility": 0.0,
+      "tolerance": 0.001,
+      "finite": true,
+      "max_contribution": 7.96807492356047,
+      "safeguard_active": false,
+      "predictor": {
+        "eta_min": -31.447984356205392,
+        "eta_max": 7.083804944883921,
+        "entries_outside_moment_range": 24
+      },
+      "scaled_blocks": {
+        "G": 2.252110484768366e-06,
+        "a": 0.00031231985899832226,
+        "gamma": 0.002299551437170644
+      },
+      "passed": false,
+      "numerical_floor": null
+    },
+    "transform_converged": true,
+    "warnings": [
+      "did not converge: max_iter after 1000 iterations (physical residual 0.0023)",
+      "24 fitted predictor entries lie outside +/-30, where moment estimation and deviance use a clamped mean; deviance_explained_ and theta_ are approximate there. Inspect stationarity_['predictor'] and component_stats_"
+    ]
+  }
+]
