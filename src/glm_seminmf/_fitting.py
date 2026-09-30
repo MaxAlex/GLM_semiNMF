@@ -144,6 +144,10 @@ class FitConfig:
     safeguard_patience: int = 10  # iterations of sustained contribution growth
     deadline: float | None = None
     verbose: bool = False
+    calibrate_l1_G: bool = False
+    reuse_step_size: bool = False
+    step_sizes: dict = field(default_factory=dict)
+    work: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -162,6 +166,7 @@ class FitResult:
     history: list[dict] = field(default_factory=list)
     initial_at_final_theta: float = np.nan
     elapsed_seconds: float = 0.0
+    work: dict = field(default_factory=dict)
 
     @property
     def timed_out(self):
@@ -281,18 +286,18 @@ def rescale_columns(state):
 
 
 @torch.no_grad()
-def physical_derivatives(state, data, cfg, *, diagnostics=False):
+def physical_derivatives(state, data, cfg, *, diagnostics=False, active=None):
     """Smooth gradients and diagonal curvature in physical coordinates.
 
     F's exact L1 is handled by the constrained prox/KKT audit, not smoothed.
     The positive curvature is a preconditioner; backtracking handles coupling.
     """
-    names = ("F", "G_raw", "a", "b", "gamma")
+    names = ("F", "G_raw", "a", "b", "gamma") if active is None else active
     grad = {n: torch.zeros_like(getattr(state, n)) for n in names
             if getattr(state, n) is not None}
     curv = {n: torch.zeros_like(v) for n, v in grad.items()}
     theta = state.log_theta.exp()[:, None]
-    f2 = state.F.square()
+    f2 = state.F.square() if "G_raw" in grad else None
     eta_min, eta_max, outside = np.inf, -np.inf, 0
     for s, e, x, z in data:
         x = x.to(state.F.dtype)
@@ -306,16 +311,21 @@ def physical_derivatives(state, data, cfg, *, diagnostics=False):
         complement = torch.sigmoid(state.log_theta[:, None] - eta)
         r = theta * prob - x * complement
         h = (theta + x) * prob * complement
-        g = state.G(slice(s, e))
-        grad["F"].add_(r @ g)
-        curv["F"].add_(h @ g.square())
-        grad["G_raw"][s:e] = r.T @ state.F + cfg.lam_G + cfg.lam_G2 * g
-        curv["G_raw"][s:e] = h.T @ f2 + cfg.lam_G2
-        grad["a"].add_(r.sum(dim=1))
-        curv["a"].add_(h.sum(dim=1))
-        grad["b"][s:e] = r.sum(dim=0)
-        curv["b"][s:e] = h.sum(dim=0)
-        if z is not None and state.gamma is not None:
+        if "F" in grad or "G_raw" in grad:
+            g = state.G(slice(s, e))
+        if "F" in grad:
+            grad["F"].add_(r @ g)
+            curv["F"].add_(h @ g.square())
+        if "G_raw" in grad:
+            grad["G_raw"][s:e] = r.T @ state.F + cfg.lam_G + cfg.lam_G2 * g
+            curv["G_raw"][s:e] = h.T @ f2 + cfg.lam_G2
+        if "a" in grad:
+            grad["a"].add_(r.sum(dim=1))
+            curv["a"].add_(h.sum(dim=1))
+        if "b" in grad:
+            grad["b"][s:e] = r.sum(dim=0)
+            curv["b"][s:e] = h.sum(dim=0)
+        if "gamma" in grad and z is not None:
             grad["gamma"].add_(r @ z)
             curv["gamma"].add_(h @ z.square())
     if diagnostics:
@@ -460,7 +470,8 @@ def _step(state, data, cfg, active, info=None):
     """
     if not active:
         return "accepted"
-    grad, curv = physical_derivatives(state, data, cfg)
+    grad, curv = physical_derivatives(state, data, cfg, active=active)
+    cfg.work["derivative_passes"] = cfg.work.get("derivative_passes", 0) + 1
     old = {n: getattr(state, n).clone() for n in active}
     metric = {}
     for name in active:
@@ -468,7 +479,9 @@ def _step(state, data, cfg, active, info=None):
         if name == "F":
             c = c.max(dim=0, keepdim=True).values  # scalar metric per sphere
         metric[name] = c.clamp(min=1e-6)
-    step = cfg.initial_step
+    key = tuple(active)
+    step = (min(cfg.initial_step, 2 * cfg.step_sizes.get(key, cfg.initial_step))
+            if cfg.reuse_step_size else cfg.initial_step)
     saw_finite, best_change = False, np.inf
     if cfg.max_linesearch == 0:
         return "line_search_failed"
@@ -491,6 +504,7 @@ def _step(state, data, cfg, active, info=None):
         # step length collapses and backtracking can never succeed. Divergence is
         # detected across iterations in run_fit instead.
         if finite:
+            cfg.work["line_search_trials"] = cfg.work.get("line_search_trials", 0) + 1
             change = objective_difference(state, data, cfg, old)
             if np.isfinite(change):
                 best_change = min(best_change, change)
@@ -500,12 +514,35 @@ def _step(state, data, cfg, active, info=None):
             # No loss-dependent float32 allowance: that can hide large residuals.
             slack = 8 * np.finfo(float).eps
             if np.isfinite(change) and slope <= slack and change <= 1e-4 * slope + slack:
+                cfg.step_sizes[key] = step
                 return "accepted"
         step *= 0.5
     _restore(state, old)
     if info is not None:
         info["best_change"] = best_change
     return "line_search_failed" if saw_finite else "nonfinite"
+
+
+@torch.no_grad()
+def information_usage_penalty(state, data):
+    """Experimental scalar L1: 0.1 times the median null score standard error.
+
+    Unit loading directions are evaluated at the initial nuisance-only NB
+    predictor and initial theta. Expected information in G is F^2.T @ I_eta.
+    This is a starting scale, not a significance threshold or selected penalty.
+    It is frozen for the entire fit and reused by transform.
+    """
+    if not state.F.numel():
+        return 0.0
+    scales = []
+    theta = state.log_theta.exp()[:, None]
+    for s, e, x, z in data:
+        eta = state.a[:, None] + state.b[s:e]
+        if state.gamma is not None and z is not None:
+            eta = eta + state.gamma @ z.T
+        info = theta * torch.sigmoid(eta - state.log_theta[:, None])
+        scales.append((info.T @ state.F.square()).clamp(min=0).sqrt().flatten())
+    return 0.1 * torch.quantile(torch.cat(scales), 0.5).item()
 
 
 @torch.no_grad()
@@ -516,6 +553,8 @@ def run_fit(state, data, cfg, *, transform=False):
     never an extra iteration. Each outer iteration is a completed block sweep.
     """
     started = time.monotonic()
+    cfg.step_sizes.clear()
+    cfg.work.clear()
     # Accept legacy internal states, but never optimize in saturated coordinates.
     if state.g_param == "softplus":
         state.G_raw.copy_(state.G())
@@ -525,6 +564,8 @@ def run_fit(state, data, cfg, *, transform=False):
     theta_active = cfg.update_theta and not transform and cfg.theta_max_updates > 0
     if theta_active:
         refresh_dispersion(state, data, cfg.dispersion_mode)
+    if cfg.calibrate_l1_G and not transform:
+        cfg.lam_G = information_usage_penalty(state, data)
     initial = _snapshot(state)
     components = objective_components(state, data, cfg.lam, cfg.lam_G, cfg.lam_G2)
     initial_loss = best = components["total"]
@@ -594,6 +635,7 @@ def run_fit(state, data, cfg, *, transform=False):
             freeze = theta_active and (stall >= 3 or n_iter >= max(1, cfg.max_iter // 2))
             if theta_active and (freeze or n_iter % cfg.theta_every == 0):
                 delta = refresh_dispersion(state, data, cfg.dispersion_mode)
+                cfg.step_sizes.clear()
                 theta_updates += 1
                 loss = full_objective(state, data, cfg.lam, cfg.lam_G, cfg.lam_G2)
                 history.append(dict(event="theta_refresh", iteration=n_iter, delta_log_theta=delta,
@@ -671,7 +713,7 @@ def run_fit(state, data, cfg, *, transform=False):
     return FitResult(losses, n_iter, reason in ("stationary", "numerically_stationary"), reason, initial_loss,
                      components["total"], best_it, audit, components,
                      phase if not theta_active else "estimating_budget_exit", theta_updates,
-                     history, initial_at_final, time.monotonic() - started)
+                     history, initial_at_final, time.monotonic() - started, dict(cfg.work))
 
 
 def run_transform(state, data, cfg):

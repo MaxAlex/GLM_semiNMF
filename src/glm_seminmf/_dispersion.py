@@ -39,6 +39,45 @@ _SHRINK_COUNTS = 50.0
 _MIN_TREND_FEATURES = 10
 
 
+def _pooled_trend(ssr, s_mu, s_mu2):
+    """Local moment pooling with conservative shrinkage toward a shared alpha.
+
+    Pool *signed* excesses before enforcing positivity, avoiding selection of
+    only noisy positive estimates at low means. Equal-population mean bins have
+    at least 20 features (up to 20 bins). Uninformative bins borrow the global
+    moment estimate; interpolation in log-alpha is flat beyond bin centers.
+
+    The Poisson known-mean variance is a working weight, not a calibrated test
+    for residuals from a fitted NB factor model. This remains an opt-in policy.
+    """
+    excess = ssr - s_mu
+    pooled = (excess.sum() / s_mu2.sum().clamp(min=1e-12)).clamp(_ALPHA_MIN, _ALPHA_MAX)
+    p = ssr.numel()
+    n_bins = max(1, min(20, p // 20))
+    log_mean = s_mu.clamp(min=1e-12).log()
+    order = torch.argsort(log_mean, stable=True)
+    def pool(value):
+        # Fixed-order reductions avoid nondeterministic CUDA scatter atomics.
+        return torch.stack([part.sum() for part in torch.tensor_split(value[order], n_bins)])
+    centers = pool(log_mean) / pool(torch.ones_like(s_mu))
+    denom = pool(s_mu2).clamp(min=1e-12)
+    variance = (pool(s_mu) + 2 * denom) / denom.square()
+    weight = pooled.square() / (pooled.square() + variance)
+    bin_alpha = (weight * pool(excess) / denom + (1-weight) * pooled).clamp(_ALPHA_MIN, _ALPHA_MAX)
+    if n_bins == 1:
+        trend = bin_alpha.log().expand_as(log_mean)
+    else:
+        right = torch.searchsorted(centers.contiguous(), log_mean.contiguous()).clamp(1, n_bins-1)
+        left = right-1
+        frac = ((log_mean-centers[left]) / (centers[right]-centers[left]).clamp(min=1e-12)).clamp(0, 1)
+        trend = (1-frac)*bin_alpha[left].log() + frac*bin_alpha[right].log()
+    z = (excess / (s_mu+2*s_mu2).clamp(min=1e-12).sqrt()).clamp(min=0)
+    w = (s_mu / (s_mu+_SHRINK_COUNTS)) * z.square() / (1+z.square())
+    raw = (excess / s_mu2.clamp(min=1e-12)).clamp(_ALPHA_MIN, _ALPHA_MAX)
+    return -(w*raw.log() + (1-w)*trend).clamp(min=pooled.new_tensor(_ALPHA_MIN).log(),
+                                            max=pooled.new_tensor(_ALPHA_MAX).log())
+
+
 def dispersion_from_moments(
     ssr: torch.Tensor,
     s_mu: torch.Tensor,
@@ -59,6 +98,8 @@ def dispersion_from_moments(
         alpha = (ssr.sum() - s_mu.sum()) / s_mu2.sum().clamp(min=1e-12)
         alpha = alpha.clamp(_ALPHA_MIN, _ALPHA_MAX)
         return (-torch.log(alpha)).expand(ssr.shape[0]).clone()
+    if mode == "trend_pooled":
+        return _pooled_trend(ssr, s_mu, s_mu2)
 
     excess = ssr - s_mu
     alpha_raw = (excess / s_mu2.clamp(min=1e-12)).clamp(_ALPHA_MIN, _ALPHA_MAX)

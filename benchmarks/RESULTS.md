@@ -9,6 +9,27 @@ corrected in place, because the solver they measured no longer exists.
 A run that exhausted its budget is reported as unresolved. It is never counted
 as a success, and never as evidence that a configuration is bad.
 
+## Current: single-cell adaptation (2026-09-22)
+
+See [the single-cell report](../docs/SINGLE_CELL_WORK.md) for protocols,
+configuration tables, calibration, real-data caveats, and reproduction commands.
+Raw artifacts live in `runs/single_cell_*`.
+
+- Active-block derivatives reduced measured GPU block-update time by about
+  14%, with the identical final objective. This is not a whole-fit speedup.
+- Signed-excess pooling improved low-count, constant-dispersion calibration;
+  fitted-factor experiments exposed remaining dispersion bias and worse
+  rare-program recovery in one case. The new options remain experimental.
+- The 42-run synthetic screen exhausted every factor-fit budget. Its transforms
+  certified, but its common calibration nulls reached their iteration caps.
+  Predictive scores describe budgeted iterates, not converged method rankings.
+- The real-data pilot preserves full-library offsets and withholds one donor
+  and 20% of genes for scoring. Its preselected panel is not independent of
+  that donor, so it is an engineering comparison only.
+- `bench.py` now uses an independently estimated common theta for comparative
+  scores and reconstructs GLM-PCA using its fitted intercept and actual size
+  factors. Historical method rankings below have not been rerun.
+
 ## Current: bounded synthetic optimizer screen
 
 Produced by `bench_optimizer.py`. Raw artifacts, with source hashes, git

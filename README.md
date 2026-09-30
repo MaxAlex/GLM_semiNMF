@@ -36,7 +36,11 @@ uses exact L1 and backtracking against this objective. Optional usage L2 default
 to zero. Dispersion uses a separate bounded method-of-moments estimating phase.
 See the [optimizer migration notes](docs/OPTIMIZER_CHANGELOG.md).
 
-The `l1_G` term (default `0.005·p`, small relative to the likelihood) is an
+For single-cell UMI counts, see the [single-cell guide and measurements](docs/SINGLE_CELL_WORK.md).
+The factor product decomposes **log expression relative to baseline**; usages
+are activities, not transcript-count allocations or mixture proportions.
+
+The `l1_G` term (default `0.005·p`) is an
 addition beyond the original spec objective, adopted for an identifiability
 reason found empirically: the predictor is invariant under
 `G_k → G_k + c, a → a − c·F_k`, so the likelihood leaves each usage column's
@@ -54,6 +58,12 @@ deviance explained 0.0005, and the fit certifies, correctly, at that degenerate
 optimum. `component_stats_["degenerate"]` and the accompanying warning catch
 it. See [benchmarks/RESULTS.md](benchmarks/RESULTS.md) for the penalty window
 measured on that data.
+
+An opt-in `l1_G="information"` uses the initial NB score-information scale
+instead of gene count. Its resolved coefficient is available as `l1_G_` and
+is reused unchanged for transform. This is an experimental starting rule;
+validate a numeric penalty path and optional `l2_G` on held-out observations.
+The default remains `"auto"` for compatibility.
 
 ## Why signed F but non-negative G
 
@@ -135,11 +145,12 @@ One row per factor, ordered by descending deviance explained:
 | `usage_mean` | Mean usage |
 | `neg_loading_mass` | Fraction of loading L1 mass that is negative |
 | `n_features_above_threshold` | Features with `abs(loading) > 3/sqrt(p)` |
-| `degenerate` | Usage collapsed (~all-zero) — evidence about `n_components` |
+| `degenerate` | Every usage is exactly zero; check penalties as well as `n_components` |
+| `rare` | Positive usage in fewer than 0.1% of samples; distinct from collapse |
 | `duplicate_of` | Index of a factor with `abs(loading corr) > 0.95`, else −1 |
 
 Degenerate or duplicated factors are **flagged, never dropped or
-reinitialized** — a run that produces them is evidence about `k`.
+reinitialized**. Inspect usage penalties and `k` when interpreting them.
 
 ## Practical notes
 
@@ -148,6 +159,18 @@ reinitialized** — a run that produces them is evidence about `k`.
 - `exposure="offset"` (default) is the stable choice; `"fit"` estimates `b`
   jointly and can absorb structure that belongs in `G`. An array supplies
   fixed per-sample log-exposure offsets.
+- For selected-gene matrices, compute exposures from the broader count matrix
+  first, then use `fit(X, exposure=log_offsets)`. The AnnData adapter accepts
+  `exposure_key` for a column of precomputed log offsets in `obs`. When fit
+  used external exposures, `transform(..., exposure=...)` requires offsets
+  with the same reference; it does not fall back to selected-gene totals.
+- `init="pearson"` offers a clipped residual-SVD warm start from a nuisance-only
+  NB mean, with working theta=100. `dispersion="trend_pooled"` pools signed
+  variance excess before positivity and shrinks weak mean bins toward shared
+  dispersion. Both are opt-in; the single-cell guide records their limits.
+- `reuse_step_size=True` optionally reuses accepted block step sizes as
+  line-search starts. `work_` records optimization derivative passes and
+  line-search trials, excluding audits and finalization.
 - `l1_F` applies to the summed NLL with `F` column-normalized, so its
   meaning is stable in `p` but should scale roughly with `n`; start around
   `0.001·n`. Benchmarks show `0.01·n` is already strong enough to crush real

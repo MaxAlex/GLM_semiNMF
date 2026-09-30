@@ -40,8 +40,8 @@ __all__ = ["NBGLMSemiNMF"]
 
 # |corr| between two factors' loadings above which they are flagged duplicates.
 _DUP_CORR = 0.95
-# A factor whose non-zero-usage fraction falls below this is flagged degenerate.
-_DEGEN_FRAC = 1e-3
+# Rare support is distinct from an entirely collapsed factor.
+_RARE_FRAC = 1e-3
 
 
 class NBGLMSemiNMF:
@@ -60,7 +60,7 @@ class NBGLMSemiNMF:
         controls separation divergence and strengthens identifiability;
         ``0.0`` is accepted but a separating feature can then drive a factor's
         contribution to diverge, which stops the fit with ``"safeguard_hit"``.
-    l1_G : float or "auto", default "auto"
+    l1_G : float, "auto", or "information", default "auto"
         Small L1 penalty on usages (sum of G). The linear predictor is
         invariant under ``G_k -> G_k + c`` with ``a -> a - c F_k``, so the
         likelihood alone leaves each usage column's baseline unidentified;
@@ -69,16 +69,25 @@ class NBGLMSemiNMF:
         measurably improves factor recovery and restart stability.
         ``"auto"`` uses ``0.005 * p``. Set 0.0 to disable (identifiability
         then rests on the orthant constraint alone).
+        Experimental ``"information"`` uses 0.1 times the median expected
+        null-score standard deviation along initial loading directions. This
+        count-aware starting scale is frozen before optimization and reused
+        by transform; inspect ``l1_G_`` and tune it for predictive performance.
     exposure : {"offset", "fit"} or ndarray of shape (n,), default "offset"
         ``"offset"``: fixed per-sample ``b_s = log(total_s / median total)``
         (the stable default). ``"fit"``: estimate ``b`` jointly — can absorb
         structure that belongs in ``G``. An array is used as fixed per-sample
         log-exposure offsets.
-    dispersion : {"trend", "feature", "shared"} or float, default "trend"
+    dispersion : {"trend", "trend_pooled", "feature", "shared"} or float, default "trend"
         NB dispersion handling; ``"trend"`` shrinks per-feature moment
         estimates toward a mean-dispersion trend. A scalar or (p,) array fixes theta.
-    init : {"svd", "nmf", "random"} or (F0, G0) tuple, default "svd"
+        Experimental ``"trend_pooled"`` pools signed variance excess in mean
+        bins before positivity, shrinks weak bins toward a shared estimate,
+        and uses flat extrapolation. Its working weights are not uncertainty estimates.
+    init : {"svd", "pearson", "nmf", "random"} or (F0, G0) tuple, default "svd"
         Warm start, computed on log1p of exposure-normalized counts.
+        ``"pearson"`` instead uses clipped NB residuals of a fitted nuisance
+        mean, with working theta=100 for initialization only.
     max_iter, tol : int, float
         Outer-iteration cap and relative-objective stagnation trigger.
         Success requires the independent physical stationarity test.
@@ -105,6 +114,10 @@ class NBGLMSemiNMF:
     learning_rate : float, default 1.0
         Initial multiplier of each curvature-scaled trial step, reduced by
         line search as needed. This is not an Adam learning rate.
+    reuse_step_size : bool, default False
+        Start each block's next line search at twice its last accepted step,
+        capped at learning_rate. Reset after dispersion changes. Opt-in;
+        Armijo acceptance and independent stationarity checks remain unchanged.
     g_parametrization : str, default "projected"
         Optimize physical nonnegative G. Legacy "softplus" requests only
         inverse-softplus raw outputs; it no longer changes optimization.
@@ -150,15 +163,21 @@ class NBGLMSemiNMF:
         mean-model improvement evaluating both states at the returned theta.
     dispersion_status_, theta_updates_
         Dispersion estimating-phase status; no claim of joint theta optimality.
+    l1_G_ : float
+        Resolved usage-L1 coefficient for the fitted objective.
+    work_ : dict
+        Optimization derivative passes and line-search trials; excludes
+        initialization, dispersion, reporting, and stationarity audits.
     transform_stop_reason_, transform_stationarity_, transform_converged_
         Corresponding diagnostics from the most recent transform call.
     deviance_explained_ : float
         1 - deviance(model)/deviance(intercepts + exposure + covariates null).
     component_stats_ : DataFrame
         Per factor: deviance_explained, usage_frac_nonzero, usage_mean,
-        neg_loading_mass, n_features_above_threshold, degenerate,
+        neg_loading_mass, n_features_above_threshold, degenerate, rare,
         duplicate_of (-1 when none). Degenerate/duplicate factors are flagged,
-        never dropped.
+        never dropped. Degenerate means entirely zero usages; rare means
+        positive usage in fewer than 0.1% of samples, and is not a failure.
     """
 
     def __init__(
@@ -184,6 +203,7 @@ class NBGLMSemiNMF:
         l2_G: float = 0.0,
         stationarity_tol: float = 1e-3,
         max_seconds: float | None = None,
+        reuse_step_size: bool = False,
     ):
         self.n_components = n_components
         self.l1_F = l1_F
@@ -205,6 +225,7 @@ class NBGLMSemiNMF:
         self.l2_G = l2_G
         self.stationarity_tol = stationarity_tol
         self.max_seconds = max_seconds
+        self.reuse_step_size = reuse_step_size
 
     # ------------------------------------------------------------------ utils
 
@@ -219,6 +240,8 @@ class NBGLMSemiNMF:
     def _resolved_l1_G(self, p: int) -> float:
         if self.l1_G == "auto":
             return 0.005 * p
+        if self.l1_G == "information":
+            return getattr(self, "l1_G_", 0.0)
         return float(self.l1_G)
 
     def _validate_options(self):
@@ -238,8 +261,10 @@ class NBGLMSemiNMF:
             value = getattr(self, name)
             if not np.isfinite(value) or value < 0:
                 raise ValueError(f"{name} must be finite and nonnegative")
-        if self.l1_G != "auto" and (not np.isfinite(float(self.l1_G)) or float(self.l1_G) < 0):
-            raise ValueError("l1_G must be 'auto' or finite and nonnegative")
+        if self.l1_G not in ("auto", "information") and (not np.isfinite(float(self.l1_G)) or float(self.l1_G) < 0):
+            raise ValueError("l1_G must be 'auto', 'information', or finite and nonnegative")
+        if not isinstance(self.reuse_step_size, (bool, np.bool_)):
+            raise ValueError("reuse_step_size must be boolean")
         for name in ("stationarity_tol", "learning_rate", "tol"):
             if not np.isfinite(getattr(self, name)) or getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be finite and positive")
@@ -261,12 +286,13 @@ class NBGLMSemiNMF:
             inner_steps=self.inner_steps, initial_step=self.learning_rate,
             dispersion_mode=self.dispersion, update_theta=isinstance(self.dispersion, str),
             verbose=self.verbose,
+            calibrate_l1_G=self.l1_G == "information", reuse_step_size=self.reuse_step_size,
         )
 
     def _record_result(self, result, prefix=""):
         for name in ("n_iter", "converged", "stop_reason", "initial_objective", "final_objective",
                      "best_iteration", "stationarity", "objective_components", "dispersion_status",
-                     "theta_updates", "timed_out", "elapsed_seconds"):
+                     "theta_updates", "timed_out", "elapsed_seconds", "work"):
             setattr(self, prefix + name + "_", getattr(result, name))
         setattr(self, prefix + "loss_", np.asarray(result.losses))
         setattr(self, prefix + "history_", result.history)
@@ -276,12 +302,14 @@ class NBGLMSemiNMF:
         setattr(self, prefix + "mean_improved_on_init_", result.final_objective <
                 result.initial_at_final_theta - 1e-10 * max(1, abs(result.initial_at_final_theta)))
 
-    def _exposure_b(self, X, n: int) -> tuple[np.ndarray, bool]:
+    def _exposure_b(self, X, n: int, exposure=None) -> tuple[np.ndarray, bool]:
         """Return (initial b, b_trainable). Also records median_total_ at fit."""
         totals = np.maximum(np.asarray(X.sum(axis=0)).ravel(), 1.0)
         self.median_total_ = float(np.median(totals))
-        if isinstance(self.exposure, np.ndarray):
-            b = np.asarray(self.exposure, dtype=np.float64).ravel()
+        policy = self.exposure if exposure is None else np.asarray(exposure)
+        self.external_exposure_ = isinstance(policy, np.ndarray)
+        if self.external_exposure_:
+            b = np.asarray(policy, dtype=np.float64).ravel()
             if not np.isfinite(b).all():
                 raise ValueError("exposure array must be finite")
             if b.shape[0] != n:
@@ -299,7 +327,7 @@ class NBGLMSemiNMF:
 
     # -------------------------------------------------------------------- fit
 
-    def fit(self, X, Z=None, *, F_fixed=None, theta_fixed=None) -> "NBGLMSemiNMF":
+    def fit(self, X, Z=None, *, F_fixed=None, theta_fixed=None, exposure=None) -> "NBGLMSemiNMF":
         """Fit the model to counts ``X`` (p features x n samples).
 
         ``X``: dense ndarray or scipy CSR/CSC of raw integer counts.
@@ -308,6 +336,9 @@ class NBGLMSemiNMF:
         ``F_fixed`` optionally supplies (p, k) frozen loadings, retaining their
         values, scale, and order. ``theta_fixed`` supplies a positive scalar
         or (p,) vector and overrides the constructor dispersion policy.
+        ``exposure`` optionally overrides the constructor with fixed per-sample
+        log offsets, usually computed before gene selection. Subsequent
+        transform calls must supply offsets on that same reference scale.
         """
         started = time.monotonic()
         self._validate_options()
@@ -320,8 +351,10 @@ class NBGLMSemiNMF:
         if self.random_state is not None:
             torch.manual_seed(self.random_state)
 
-        b0, b_trainable = self._exposure_b(X, n)
-        F0, G0, a0, gamma0 = initialize(X, b0, k, self.init, self.random_state, Znp)
+        b0, b_trainable = self._exposure_b(X, n, exposure)
+        deadline = None if self.max_seconds is None else started + self.max_seconds
+        F0, G0, a0, gamma0 = initialize(X, b0, k, self.init, self.random_state, Znp,
+                                      deadline=deadline, batch_size=self.batch_size)
         if F_fixed is not None:
             F_fixed = np.asarray(F_fixed)
             if F_fixed.shape != (p, k) or not np.isfinite(F_fixed).all():
@@ -346,11 +379,12 @@ class NBGLMSemiNMF:
                 raise ValueError("fixed dispersion must be positive and finite, scalar or shape (p,)")
             state.log_theta.copy_(torch.as_tensor(np.broadcast_to(np.log(theta), (p,)).copy(), device=device, dtype=dtype))
             cfg.update_theta = False
-        elif self.dispersion not in ("trend", "feature", "shared"):
+        elif self.dispersion not in ("trend", "trend_pooled", "feature", "shared"):
             raise ValueError("unknown dispersion mode")
-        cfg.deadline = None if self.max_seconds is None else started + self.max_seconds
+        cfg.deadline = deadline
         optimization_start = time.monotonic()
         result = run_fit(state, data, cfg)
+        self.l1_G_ = cfg.lam_G
         optimization_end = time.monotonic()
         self._record_result(result)
         if not result.converged:
@@ -450,7 +484,8 @@ class NBGLMSemiNMF:
                 partners = [i for i in range(k) if i != j and abs(C[j, i]) > _DUP_CORR]
                 if partners:
                     dup[j] = partners[0]
-        degenerate = frac_nz < _DEGEN_FRAC
+        degenerate = frac_nz == 0
+        rare = (frac_nz > 0) & (frac_nz < _RARE_FRAC)
 
         self.F_, self.G_, self.G_raw_ = F, G, G_raw
         self.G_internal_ = G.copy()
@@ -466,13 +501,14 @@ class NBGLMSemiNMF:
                 "neg_loading_mass": neg_mass,
                 "n_features_above_threshold": n_above,
                 "degenerate": degenerate,
+                "rare": rare,
                 "duplicate_of": dup,
             }
         )
         if degenerate.any() or (dup >= 0).any():
             warnings.warn(
                 "degenerate or duplicated factors detected (see component_stats_); "
-                "this is evidence about n_components, factors were not dropped",
+                "check usage penalties and n_components; factors were not dropped",
                 RuntimeWarning,
                 stacklevel=3,
             )
@@ -495,6 +531,7 @@ class NBGLMSemiNMF:
         cfg = self._cfg(p)
         cfg.max_iter = min(150, self.max_iter)
         cfg.update_theta = False
+        cfg.calibrate_l1_G = False
         cfg.lam = 0.0
         cfg.verbose = False
         cfg.deadline = getattr(self, "_fit_deadline", None)
@@ -518,6 +555,8 @@ class NBGLMSemiNMF:
         log-exposure offsets; otherwise offsets come from the new samples'
         totals scaled by the fit-time median total (and are refined per
         sample when the model was fitted with ``exposure="fit"``).
+        When fit used external offsets, ``exposure`` is required: selected-gene
+        totals cannot reconstruct the original normalization reference.
         """
         started = time.monotonic()
         if not hasattr(self, "F_"):
@@ -533,6 +572,8 @@ class NBGLMSemiNMF:
         if exposure is not None:
             b0, b_trainable = np.asarray(exposure, dtype=np.float64).ravel(), False
         else:
+            if self.external_exposure_:
+                raise ValueError("fit used external exposure; supply compatible log-exposure offsets to transform")
             totals = np.maximum(np.asarray(X.sum(axis=0)).ravel(), 1.0)
             b0 = np.log(totals / self.median_total_)
             b_trainable = isinstance(self.exposure, str) and self.exposure == "fit"
@@ -589,6 +630,6 @@ class NBGLMSemiNMF:
                 g0 = (resid.T @ state.F).clamp(min=1e-4)
                 state.G_raw[s:e] = softplus_inv(g0) if state.g_param == "softplus" else g0
 
-    def fit_transform(self, X, Z=None, *, F_fixed=None, theta_fixed=None) -> np.ndarray:
+    def fit_transform(self, X, Z=None, *, F_fixed=None, theta_fixed=None, exposure=None) -> np.ndarray:
         """Fit the model and return the fitted usages ``G_`` (n, k)."""
-        return self.fit(X, Z, F_fixed=F_fixed, theta_fixed=theta_fixed).G_
+        return self.fit(X, Z, F_fixed=F_fixed, theta_fixed=theta_fixed, exposure=exposure).G_

@@ -1,6 +1,7 @@
 # Remaining work
 
-Status as of 2026-09-18, after the optimizer repair described in
+Status as of 2026-09-22, after the single-cell adaptation in
+[SINGLE_CELL_WORK.md](SINGLE_CELL_WORK.md) and the optimizer repair described in
 [OPTIMIZER_PLAN.md](OPTIMIZER_PLAN.md) and
 [OPTIMIZER_CHANGELOG.md](OPTIMIZER_CHANGELOG.md). Every item below has evidence
 behind its priority; the measurements are in
@@ -8,7 +9,8 @@ behind its priority; the measurements are in
 
 Nothing here blocks using the library. The solver optimizes one declared
 objective, certifies the parameters it returns, and reports honestly when it
-cannot. 94 tests pass.
+cannot. 111 tests pass. Sparse single-cell fits remain statistically and
+numerically demanding; the latest bounded screen is not a convergence claim.
 
 ## Finished
 
@@ -24,25 +26,45 @@ All five units of the plan, plus two things the measurements turned up:
   20 Newsgroups comparisons.
 - `numerically_stationary`, so fits at the arithmetic's limit stop being
   reported as failures.
+- Active-block derivative computation: identical measured objectives with
+  about 14% lower GPU block-update time on the declared microbenchmark.
+- Opt-in `l1_G="information"`, `init="pearson"`, and
+  `dispersion="trend_pooled"`, with low-count calibration and held-out-gene
+  benchmarks. Statistical defaults remain unchanged.
+- External exposure overrides and AnnData `exposure_key`; transform requires
+  compatible offsets after externally normalized fits. Rare support is now
+  distinguished from entirely collapsed usages.
+- Independent common-null dispersion for benchmark scoring. GLM-PCA predictor
+  reconstruction now uses fitted intercepts and the correct size-factor
+  convention, verified against upstream glmpca-py 0.1.0 before postprocessing.
 
 ## Open
 
-### 1. A common dispersion for scoring baselines
+### 1. Complete certified single-cell comparisons
 
-**Why it matters:** the NMF and GLM-PCA comparison cannot currently be quoted.
-Baselines are scored with *our* fitted theta, so the identical NMF fit scored
-+0.0611 against one of our models and -0.0227 against another. The comparison
-moves when our model moves.
+**Why it matters:** the new 42-run synthetic screen spans depth, measured batch
+effects, rare activities, correlated loadings, seven configurations, and two
+perturbed starts. All fits exhausted 45 seconds, so their scores describe
+budgeted iterates. Their shared calibration nulls also reached their iteration
+cap. The harness records both limitations, and freezes one common null across
+all candidates within a case.
 
-**What to do:** score all methods with a single model-independent dispersion.
-The null-model estimate (intercepts plus exposure, already computed inside
-`_null_deviance`) is the natural neutral choice. Keep `deviance_explained_`
-itself as documented for our own model, and report the common-theta score
-separately as the comparable metric.
+The seven-configuration real-data pilot has a certified common null and
+certified transforms. The automatic-penalty fit certifies with 4/5 programs
+collapsed; all six alternatives exhaust their CPU budgets with residuals
+96–331. Their predictive improvements are preliminary, not numerical-floor
+cases or converged comparisons.
 
-**Also in scope:** `_glmpca_eta` in `benchmarks/bench.py` reconstructs
-GLM-PCA's predictor from an assumed convention that has never been verified.
-Its -0.47 could be the reconstruction rather than the method.
+**What to do:** identify the blocks limiting certification, then compare at
+matched stationarity and independently validated regularization settings.
+Separate genes unobserved in training from supported genes when interpreting
+predictive performance. The new `work_` counters support pass-cost analysis.
+
+**Baseline follow-up:** rerun the historical 20 Newsgroups NMF/GLM-PCA
+comparison with the corrected scoring and predictor reconstruction before
+quoting method rankings. The earlier numbers remain invalidated.
+`_null_deviance()` intentionally holds the fitted model's theta fixed;
+independent dispersion estimation now lives in `benchmarks/scoring.py`.
 
 ### 2. Trend quality at the extremes of the mean range
 
@@ -50,12 +72,19 @@ Its -0.47 could be the reconstruction rather than the method.
 because the feature with the largest mean takes the trend entirely (shrink
 weight 0) and the trend is poor there — theta 1989 against a true 8.9.
 
-**What to do:** weight the trend fit by information, or handle the ends
-explicitly. Clamping the trend to its fitted response range was tried and
-reverted: it did not bind, changed no aggregate, and flipped one problem each
-way at the tolerance boundary.
+**What changed:** information weighting of the positive-excess-only trend was
+tested and rejected: it did not resolve low-mean selection bias. The opt-in
+pooled trend includes signed excesses, shrinks weak mean bins toward a shared
+estimate, and uses flat endpoint extrapolation. It substantially improves
+constant-dispersion low-count calibration, but this does not settle the old
+endpoint case or residual-dispersion bias after fitting latent programs.
 
-### 3. The `l1_G="auto"` heuristic on sparse data — a decision, not a task
+**What remains:** validate the old endpoint reproduction and improve fitted-mean
+calibration. In the rare/correlated synthetic case, pooling can approach the
+Poisson ceiling and worsen recovery. Do not promote this option to the default
+on the strength of the simpler calibration experiment.
+
+### 3. Selecting sparse-data usage penalties
 
 **Why it matters:** `0.005*p` is calibrated on the generator's count scale. On
 20 Newsgroups (2.45% nonzero, mean count 0.044) it drives every usage to zero:
@@ -64,10 +93,13 @@ correctly, since at `G = 0` the penalty gradient exceeds the likelihood's pull.
 The diagnostics catch it, but the default's premise that the penalty is "small
 relative to the likelihood" does not hold at that count scale.
 
-**Options:** leave it and document (done in the README), make the heuristic
-count-aware, or warn when every factor is flagged degenerate. Changing it is a
-regularization default, which this work deliberately did not touch, so it needs
-an explicit decision.
+**Decision:** retain `"auto"` for compatibility and provide the opt-in
+information-scaled rule. The real single-cell pilot also reproduces severe
+collapse with `"auto"`; weaker penalties retain more factors but generally
+need longer optimization. Their apparent predictive gains are provisional.
+Select penalties on observations excluded from usage inference, with independent
+donor validation before a default change. The current real-data panel was
+preselected using discovery donors, so it is an engineering pilot only.
 
 ### 4. The p=3000, n=20000, k=10 target
 
@@ -81,6 +113,11 @@ testable; and reduce per-iteration cost. The float32 row of that run ended
 `line_search_failed` before the numerical-floor certificate existed and has not
 been re-run, so its status is unknown.
 
+The active-block optimization reduces one measured component of runtime; the
+large target is still open. Step-size reuse showed no benefit in that timing
+case and defaults to False. Dense zero contributions and float64 line-search
+evaluation remain substantial work even for sparse inputs.
+
 ### 5. Second-order acceleration
 
 Twice demoted, and worth stating why so it is not re-prioritized by habit. It
@@ -90,6 +127,12 @@ And the well-conditioned settings in the grid already certify in 2-7 s on GPU,
 so the payoff is confined to weak-usage-penalty configurations needing ~1200 to
 1740 iterations. The cheaper lever is passes per outer iteration: about 24, of
 which roughly 12 are backtracking trials.
+
+The single-cell screen strengthens the case for profiling weak-penalty fits:
+many remain well above tolerance after roughly 1,600–2,100 updates. Numerical-
+floor arguments do not explain those residuals. Diagnose active blocks before
+choosing between better curvature, fewer passes, or stronger regularization;
+stronger regularization is not a free computational improvement.
 
 ### 6. Lowering the numerical floor — diagnostics only
 

@@ -1,13 +1,12 @@
-"""Warm starts: truncated SVD, quick internal NMF, or random.
+"""Warm starts: log-count or Pearson-residual SVD, internal NMF, or random.
 
-All run in numpy/scipy on CPU — initialization is a small fraction of fit
-cost. Both data-driven inits work on ``Y = log1p(X / exp(b))``, the log1p of
-exposure-normalized counts (spec section 3), which preserves sparsity.
+All run on CPU. Standard SVD and NMF work on ``Y = log1p(X / exp(b))``, the
+log1p of exposure-normalized counts, which preserves sparsity. Pearson SVD
+instead uses clipped NB residuals from a fitted nuisance-only mean.
 
-When covariates are supplied, Y is first regressed on (centered) Z and the
-factor warm start is computed on the residual, with the OLS coefficients
-returned as the warm start for gamma — otherwise the initial factors absorb
-covariate structure and the fitted gamma never fully displaces it.
+For log-count starts with covariates, Y is first regressed on centered Z and
+the coefficients warm-start gamma. The Pearson start includes covariates in
+its nuisance fit and carries those coefficients into the factor fit.
 """
 
 from __future__ import annotations
@@ -37,26 +36,32 @@ def _svd_init(Y, k: int, rng: np.random.Generator, gamma0, Zc):
     """Truncated SVD of row-centered, covariate-residualized Y. Sparse Y is
     handled through an implicit LinearOperator (never densified)."""
     p, n = Y.shape
-    row_means = np.asarray(Y.mean(axis=1)).ravel()
+    implicit = isinstance(Y, LinearOperator)
+    row_means = np.asarray(Y @ np.ones(n) / n if implicit else Y.mean(axis=1)).ravel()
     kk = min(k, min(p, n) - 1)
+    if kk <= 0:
+        return rng.normal(0.0, 0.01, (p, k)), np.zeros((n, k))
     v0 = rng.standard_normal(min(p, n))
 
-    if sp.issparse(Y):
+    if sp.issparse(Y) or implicit:
         ones_n = np.ones(n)
 
         def mv(v):
+            v = np.asarray(v).reshape(-1)
             out = Y @ v - row_means * v.sum()
             if gamma0 is not None:
                 out = out - gamma0 @ (Zc.T @ v)
             return out
 
         def rmv(u):
+            u = np.asarray(u).reshape(-1)
             out = Y.T @ u - ones_n * (row_means @ u)
             if gamma0 is not None:
                 out = out - Zc @ (gamma0.T @ u)
             return out
 
-        U, S, Vt = svds(LinearOperator((p, n), matvec=mv, rmatvec=rmv), k=kk, v0=v0)
+        U, S, Vt = svds(LinearOperator((p, n), matvec=mv, rmatvec=rmv,
+                                      dtype=np.float64), k=kk, v0=v0)
     else:
         Yc = Y - row_means[:, None]
         if gamma0 is not None:
@@ -79,6 +84,68 @@ def _svd_init(Y, k: int, rng: np.random.Generator, gamma0, Zc):
     return F0, G0
 
 
+def _pearson_start(X, b, k, rng, Z, *, deadline=None, batch_size=None):
+    """Clipped NB Pearson-residual SVD under a fitted nuisance-only mean.
+
+    Theta=100 is an initialization working value, not the fitted dispersion.
+    Large residual matrices are a streaming LinearOperator. No normalized or
+    imputed values enter the actual model likelihood.
+    """
+    import torch
+    from ._fitting import DataSource, FitConfig, FitState, run_fit
+
+    p, n = X.shape
+    a = np.log(np.asarray(X.sum(axis=1)).ravel() / np.exp(b).sum() + 1e-8)
+    tensor = lambda v: torch.as_tensor(v, dtype=torch.float64).clone()
+    state = FitState(tensor(np.zeros((p, 0))), tensor(np.zeros((n, 0))),
+                     tensor(a), tensor(b), None if Z is None else tensor(np.zeros((p, Z.shape[1]))),
+                     tensor(np.full(p, np.log(100.0))), False)
+    data = DataSource(X, Z, 'cpu', torch.float64, batch_size)
+    run_fit(state, data, FitConfig(update_theta=False, max_iter=75, inner_steps=2,
+                                  deadline=deadline))
+    a = state.a.numpy().copy()
+    gamma = None if state.gamma is None else state.gamma.numpy().copy()
+    # Release the resident torch count copy before the spectral pass.
+    del state, data
+    chunk = min(n, batch_size or max(1, 2_000_000 // p))
+
+    def blocks():
+        for s in range(0, n, chunk):
+            e = min(n, s + chunk)
+            x = X[:, s:e]
+            x = x.toarray() if sp.issparse(x) else np.asarray(x)
+            eta = a[:, None] + b[None, s:e]
+            if gamma is not None:
+                eta = eta + gamma @ Z[s:e].T
+            mu = np.exp(np.clip(eta, -30, 30))
+            r = (x - mu) / np.sqrt(mu + mu * mu / 100.0)
+            yield s, e, np.clip(r, -np.sqrt(n), np.sqrt(n))
+
+    if p * n <= _DENSIFY_ELEMENTS:
+        residual = np.empty((p, n))
+        for s, e, r in blocks():
+            residual[:, s:e] = r
+    else:
+        def matmat(v):
+            out = np.zeros((p, v.shape[1]))
+            for s, e, r in blocks():
+                out += r @ v[s:e]
+            return out
+
+        def rmatmat(u):
+            out = np.empty((n, u.shape[1]))
+            for s, e, r in blocks():
+                out[s:e] = r.T @ u
+            return out
+
+        residual = LinearOperator((p, n), dtype=np.float64,
+                                  matvec=lambda v: matmat(np.asarray(v).reshape(n, 1)).ravel(),
+                                  rmatvec=lambda u: rmatmat(np.asarray(u).reshape(p, 1)).ravel(),
+                                  matmat=matmat, rmatmat=rmatmat)
+    F, G = _svd_init(residual, k, rng, None, None)
+    return F, G, a, gamma
+
+
 def _nmf_init(Y, k: int, rng: np.random.Generator, gamma0, Zc, n_iter: int = 80):
     """Multiplicative-update NMF; covariate-residualized only when dense."""
     if gamma0 is not None and not sp.issparse(Y):
@@ -96,15 +163,20 @@ def _nmf_init(Y, k: int, rng: np.random.Generator, gamma0, Zc, n_iter: int = 80)
 
 
 def initialize(
-    X, b: np.ndarray, k: int, method, random_state, Z: np.ndarray | None = None
+    X, b: np.ndarray, k: int, method, random_state, Z: np.ndarray | None = None,
+    *, deadline=None, batch_size=None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
     """Return ``(F0, G0, a0, gamma0)``; F0 is p x k signed, G0 non-negative.
 
-    ``method`` is ``"svd"`` | ``"nmf"`` | ``"random"`` or a ``(F0, G0)`` tuple.
+    ``method`` is ``"svd"`` | ``"pearson"`` | ``"nmf"`` | ``"random"`` or a
+    ``(F0, G0)`` tuple.
     ``gamma0`` is the covariate warm start (None when Z is None).
     """
     p, n = X.shape
     rng = np.random.default_rng(random_state)
+
+    if isinstance(method, str) and method == "pearson":
+        return _pearson_start(X, b, k, rng, Z, deadline=deadline, batch_size=batch_size)
 
     mean_norm = np.asarray(X @ np.exp(-b)).ravel() / n
     a0 = np.log(mean_norm + 1e-8)

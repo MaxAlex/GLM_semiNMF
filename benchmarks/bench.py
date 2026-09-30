@@ -30,6 +30,10 @@ import scipy.sparse as sp
 import torch
 
 from glm_seminmf import NBGLMSemiNMF, simulate_nb_seminmf
+try:
+    from .scoring import fit_common_null, predictor, score_eta
+except ImportError:  # direct script execution
+    from scoring import fit_common_null, predictor, score_eta
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -169,6 +173,16 @@ def bench_real_data(quick: bool, device: str, budget: dict, glmpca_max_iter: int
     lam = 0.001 * n
     print(f"20 Newsgroups: p={p} n={n} nnz_frac={X.nnz/(p*n):.4f}")
     out = {"shape": [p, n]}
+    totals = np.maximum(np.asarray(X.sum(axis=0)).ravel(), 1.0)
+    b_common = np.log(totals / np.median(totals))
+    common = fit_common_null(X, b_common, device=device,
+                             max_seconds=budget.get('max_seconds'),
+                             max_iter=budget.get('max_iter', 500))
+    common_eta = predictor(common, b_common)
+    out['common_null'] = dict(stop_reason=common.stop_reason_, converged=common.converged_,
+                              dispersion='shared', theta=common.theta_.tolist())
+    common_score = lambda eta: score_eta(X, eta, common_eta, common.theta_)[
+        'common_theta_deviance_explained']
 
     m = NBGLMSemiNMF(n_components=k, l1_F=lam, random_state=0, device=device, **budget)
     wall, mem = _fit_timed(m, X)
@@ -179,6 +193,7 @@ def bench_real_data(quick: bool, device: str, budget: dict, glmpca_max_iter: int
                        max_residual=float(m.stationarity_["max_residual"]),
                        safeguard_active=bool(m.stationarity_["safeguard_active"]),
                        total_seconds=round(m.total_seconds_, 1))
+    out['ours']['common_theta_dev_expl'] = common_score(predictor(m, m.b_, m.G_))
     print("ours:", out["ours"])
 
     # Rotation stability needs genuinely distinct starts. random_state alone
@@ -223,7 +238,7 @@ def bench_real_data(quick: bool, device: str, budget: dict, glmpca_max_iter: int
     print("rotation stability:", out["rotation_stability"])
 
     # NMF baseline at matched k: fit on log1p normalized, score NB deviance
-    # of its implied mean on the count scale using our fitted theta.
+    # of its implied mean at the independent null's common theta.
     from sklearn.decomposition import NMF
 
     totals = np.asarray(X.sum(axis=0)).ravel()
@@ -238,7 +253,7 @@ def bench_real_data(quick: bool, device: str, budget: dict, glmpca_max_iter: int
     mu_nmf = np.expm1(np.clip(W @ H, 0, 30)) * s[None, :] + 1e-9
     out["nmf"] = dict(
         wall_s=round(time.perf_counter() - t0, 1),
-        dev_expl=round(_dev_expl_of_mu(X, mu_nmf, m.theta_), 4),
+        common_theta_dev_expl=common_score(np.log(mu_nmf)),
     )
     print("nmf:", out["nmf"])
 
@@ -258,12 +273,14 @@ def bench_real_data(quick: bool, device: str, budget: dict, glmpca_max_iter: int
         # comparison. glmpca has no stationarity report of its own, so its
         # iteration cap is the only budget statement available for it.
         ctl = {"maxIter": glmpca_max_iter, "eps": 1e-4}
-        res = glmpca(np.asarray(X.todense()), L=k, fam="nb", ctl=ctl, verbose=False)
-        mu_g = np.exp(np.clip(_glmpca_eta(res, X), -30, 30))
+        np.random.seed(0)
+        res = glmpca(np.asarray(X.todense()), L=k, fam="nb", ctl=ctl, verbose=False,
+                     sz=np.exp(b_common))
+        eta_g = _glmpca_eta(res, X, size_factors=np.exp(b_common))
         out["glmpca"] = dict(
             wall_s=round(time.perf_counter() - t0, 1),
             max_iter=glmpca_max_iter,
-            dev_expl=round(_dev_expl_of_mu(X, mu_g, m.theta_), 4),
+            common_theta_dev_expl=common_score(eta_g),
         )
     except Exception as e:  # optional dependency; report rather than fail
         out["glmpca"] = dict(error=repr(e)[:200])
@@ -271,28 +288,20 @@ def bench_real_data(quick: bool, device: str, budget: dict, glmpca_max_iter: int
     return out
 
 
-def _glmpca_eta(res, X):
-    # glmpca returns factors/loadings; eta = row offsets + loadings @ factors^T
+def _glmpca_eta(res, X, *, size_factors=None):
+    # Verified against glmpca-py 0.1.0 glmpca_init/postprocess: for the no-
+    # covariate benchmark, eta = log(sz) + fitted intercept + V @ U.T.
+    # Its default sz is column MEANS, not median-normalized library totals.
+    # https://github.com/willtownes/glmpca-py/blob/master/glmpca/glmpca.py
     V = res["loadings"]  # features x k
     U = res["factors"]  # samples x k
-    eta = V @ U.T
-    totals = np.asarray(X.sum(axis=0)).ravel()
-    eta = eta + np.log(totals / np.median(totals))[None, :]
-    row_mean = np.log(np.maximum(np.asarray(X.mean(axis=1)).ravel(), 1e-8))
-    return eta + row_mean[:, None]
-
-
-def _dev_expl_of_mu(X, mu, theta) -> float:
-    from glm_seminmf._likelihood import nb_deviance
-
-    Xd = torch.as_tensor(np.asarray(X.todense(), dtype=np.float64))
-    mu_t = torch.as_tensor(np.asarray(mu, dtype=np.float64))
-    th = torch.as_tensor(theta[:, None])
-    d_model = nb_deviance(Xd, mu_t, th).sum().item()
-    totals = Xd.sum(dim=0)
-    null_mu = torch.outer(Xd.sum(dim=1) / totals.sum(), totals) + 1e-9
-    d_null = nb_deviance(Xd, null_mu, th).sum().item()
-    return 1.0 - d_model / d_null
+    intercept = np.asarray(res['coefX'])
+    if intercept.shape != (X.shape[0], 1) or res.get('coefZ') is not None:
+        raise ValueError('This reconstruction supports the intercept-only GLM-PCA benchmark')
+    sz = np.asarray(X.mean(axis=0)).ravel() if size_factors is None else np.asarray(size_factors)
+    if sz.shape != (X.shape[1],) or (sz <= 0).any() or not np.isfinite(sz).all():
+        raise ValueError('GLM-PCA size factors must be finite and positive')
+    return V @ U.T + intercept + np.log(sz)[None, :]
 
 
 def main():

@@ -15,6 +15,22 @@ The biological model and the regularization defaults are unchanged. Optional
 usage L2 defaults to zero. A stationary fit is not a claim of global
 optimality, unique factor identification, or biological predictive value.
 
+## Single-cell additions (2026-09-22)
+
+The [single-cell report](SINGLE_CELL_WORK.md) records the implementation and
+measurements; [remaining work](REMAINING_WORK.md) tracks unresolved convergence
+and statistical calibration. Active-block derivatives reduce redundant work
+without changing the objective or certificates. Optional step-size reuse keeps
+the existing Armijo test. New information-scaled usage penalties, Pearson
+initialization, and pooled dispersion are opt-in; statistical defaults remain
+unchanged. The expanded suite passes 111 tests.
+
+Two API details matter when migrating: externally supplied log exposures must
+also be supplied to `transform`, preserving their training reference; and
+`component_stats_.degenerate` now means entirely zero usages, with a separate
+`rare` flag for small positive support. `l1_G_` reports the resolved penalty and
+`work_` reports optimization derivative passes and line-search trials.
+
 ## Why the solver was rebuilt
 
 The previous solver did not optimize the objective it reported.

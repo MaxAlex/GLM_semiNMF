@@ -85,6 +85,9 @@ is updated, including fitted exposure when k=0. Each block takes `inner_steps`
 curvature-preconditioned steps, default 5. The diagonal curvature is floored
 at 1e-6; F uses one curvature scalar per column, the maximum over feature rows.
 Curvature is a preconditioner, not a claim that the coupled Hessian is diagonal.
+Optimization derivative passes now compute only the active block's gradients
+and curvature; the independent audit still checks all required physical
+conditions. This changes work, not the objective or step proposals.
 
 For ordinary parameters, propose x - t grad/metric. Project G onto the
 nonnegative orthant. For each F column, solve exactly
@@ -105,6 +108,10 @@ accepts a finite feasible proposal satisfying composite Armijo decrease with
 coefficient 1e-4. The slope includes the smooth directional derivative and
 the exact change in loading L1. At most 30 trials are made. Failed steps are
 restored; there is no unrelated proximal threshold or hidden Adam schedule.
+Optional `reuse_step_size=True` starts a block at twice its last accepted
+multiplier, capped at `learning_rate`, and resets this memory after dispersion
+refreshes. It defaults to False. `work_` counts optimization derivative passes
+and objective-difference trials, excluding audits and reporting passes.
 
 ## Separation: a divergence trigger, not a bound
 
@@ -217,6 +224,35 @@ is a copy of the same values; export objective/predictor changes are zero.
 `G_raw_` equals G_ by default. Legacy softplus mode supplies inverse-softplus
 compatibility values, using a finite dtype-tiny floor at zero. Both modes can
 have ties. These are not invented continuous ranks for inactive samples.
+
+Single-cell additions are opt-in:
+
+- `init="pearson"` fits an intercept/exposure/covariate mean with working
+  theta=100, clips its NB Pearson residuals to +/-sqrt(n), and uses their SVD
+  for factor directions and projected nonnegative activities. Large residual
+  matrices use a streamed linear operator. The working theta affects only the
+  initialization; the actual fit uses raw counts and its requested dispersion.
+- `l1_G="information"` resolves once, after initial dispersion setup, to
+  `0.1 * median(sqrt(I0.T @ F**2))`, where
+  `I0 = theta * sigmoid(a + b + gamma@Z.T - log(theta))` uses the initial
+  nuisance-only predictor. It is a heuristic score standard-deviation scale,
+  not a calibrated significance cutoff. The coefficient is frozen, reported
+  as `l1_G_`, and reused for transform. Existing `"auto"` is unchanged.
+- `dispersion="trend_pooled"` groups genes in sorted log-total-mean order into
+  up to 20 equal-population bins, with at least 20 genes per bin unless the
+  whole dataset has fewer genes. Each bin pools signed variance excesses
+  before imposing positivity. Its alpha estimate is shrunk toward the pooled
+  global alpha with weight `alpha_pool**2 / (alpha_pool**2 + v_bin)`, where
+  `v_bin = (sum(mu) + 2*sum(mu**2)) / sum(mu**2)**2`. Log-alpha is interpolated
+  between bin centers, with flat endpoint extrapolation. Per-gene shrinkage
+  uses the same count weight as the original trend, and a working excess scale
+  `sqrt(sum(mu) + 2*sum(mu**2))`. These Poisson known-mean weights are deliberately
+  heuristic for fitted NB residuals; they do not establish dispersion uncertainty.
+
+Externally supplied log exposures override constructor policy through
+`fit(..., exposure=...)`. Subsequent transforms require explicit compatible
+offsets so gene subsetting cannot silently change normalization. Completely
+zero usage columns are `degenerate`; positive support below 0.1% is `rare`.
 
 Transform freezes F, a, gamma, theta and optionally b. It uses the same G
 objective, physical residuals, checkpoint protection, and deadline handling.

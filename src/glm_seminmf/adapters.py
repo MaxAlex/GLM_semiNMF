@@ -41,6 +41,8 @@ def fit_anndata(
     adata,
     layer: str | None = None,
     covariates: Sequence[str] | None = None,
+    *,
+    exposure_key: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fit on an AnnData object (samples x features orientation, as is its
     convention; transposed internally). Requires the ``anndata`` extra.
@@ -49,11 +51,14 @@ def fit_anndata(
     layer holding raw integer counts. ``covariates`` names columns of
     ``adata.obs`` to use as the design matrix (categoricals one-hot encoded).
     Returns ``(loadings, usages)`` indexed by ``var_names`` / ``obs_names``.
+    ``exposure_key`` selects precomputed log-exposure offsets from ``obs``;
+    compute these from the broader count matrix before selecting genes.
     """
     mat = adata.layers[layer] if layer is not None else adata.X
     X = mat.T if not isinstance(mat, np.ndarray) else mat.T
     Z = adata.obs[list(covariates)] if covariates else None
-    model.fit(X, Z=Z)
+    exposure = None if exposure_key is None else adata.obs[exposure_key].to_numpy(dtype=float)
+    model.fit(X, Z=Z, exposure=exposure)
     cols = [f"factor_{j}" for j in range(model.F_.shape[1])]
     loadings = pd.DataFrame(model.F_, index=adata.var_names, columns=cols)
     usages = pd.DataFrame(model.G_, index=adata.obs_names, columns=cols)
