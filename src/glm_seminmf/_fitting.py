@@ -131,6 +131,8 @@ class FitConfig:
     # representative, keeps the orthant constraint active, and measurably
     # improves factor recovery. Scaled ~ p by the caller.
     lam_G: float = 0.0
+    # Squared L2 on usages, with 0.5 * lam_G2 * sum(G**2) convention.
+    lam_G2: float = 0.0
     max_iter: int = 500
     tol: float = 1e-5
     algorithm: str = "adam"  # "adam" | "lbfgs" | "adam_joint"
@@ -164,7 +166,8 @@ def _set_active(active: list[torch.Tensor], all_params: list[torch.Tensor]) -> N
         prm.requires_grad_(any(prm is x for x in active))
 
 
-def full_objective(state: FitState, data: DataSource, lam: float, lam_G: float = 0.0) -> float:
+def full_objective(state: FitState, data: DataSource, lam: float, lam_G: float = 0.0,
+                   lam_G2: float = 0.0) -> float:
     """Penalized objective with the full NLL (lgamma terms included)."""
     total = 0.0
     with torch.no_grad():
@@ -175,6 +178,8 @@ def full_objective(state: FitState, data: DataSource, lam: float, lam_G: float =
         total += lam * state.F.abs().sum(dtype=torch.float64).item()
         if lam_G > 0 and state.F.shape[1] > 0:
             total += lam_G * state.G(slice(None)).sum(dtype=torch.float64).item()
+        if lam_G2 > 0 and state.F.shape[1] > 0:
+            total += 0.5 * lam_G2 * state.G().square().sum(dtype=torch.float64).item()
     return total
 
 
@@ -219,12 +224,15 @@ def refresh_dispersion(state: FitState, data: DataSource, mode: str | float) -> 
     return delta
 
 
-def _accumulate_grads(state: FitState, data: DataSource, lam_G: float = 0.0) -> None:
-    g_active = lam_G > 0 and state.F.shape[1] > 0 and state.G_raw.requires_grad
+def _accumulate_grads(state: FitState, data: DataSource, lam_G: float = 0.0,
+                      lam_G2: float = 0.0) -> None:
+    g_active = state.F.shape[1] > 0 and state.G_raw.requires_grad
     for s, e, x, z in data:
         loss = nb_nll(x, state.eta(s, e, z), state.log_theta.unsqueeze(1)).sum()
-        if g_active:
+        if g_active and lam_G > 0:
             loss = loss + lam_G * state.G(slice(s, e)).sum()
+        if g_active and lam_G2 > 0:
+            loss = loss + 0.5 * lam_G2 * state.G(slice(s, e)).square().sum()
         loss.backward()
 
 
@@ -327,6 +335,8 @@ def _lbfgs_block(params: list[torch.Tensor], state: FitState, data: DataSource, 
                 loss = loss + cfg.lam * torch.sqrt(state.F**2 + 1e-8).sum()
             if not is_F and cfg.lam_G > 0 and state.F.shape[1] > 0:
                 loss = loss + cfg.lam_G * state.G(slice(s, e)).sum()
+            if not is_F and cfg.lam_G2 > 0 and state.F.shape[1] > 0:
+                loss = loss + 0.5 * cfg.lam_G2 * state.G(slice(s, e)).square().sum()
             loss.backward()
             total += loss.detach().item()
         return total
@@ -377,7 +387,7 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
             _set_active(params_F + params_G, all_params)
             for _ in range(2 * cfg.inner_steps):
                 opt_J.zero_grad(set_to_none=True)
-                _accumulate_grads(state, data, cfg.lam_G)
+                _accumulate_grads(state, data, cfg.lam_G, cfg.lam_G2)
                 opt_J.step()
                 if not cfg.frozen_F:
                     _prox_and_clip_F(state, opt_J, cfg)
@@ -396,7 +406,7 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
                 _set_active(params_G, all_params)
                 for _ in range(cfg.inner_steps):
                     opt_G.zero_grad(set_to_none=True)
-                    _accumulate_grads(state, data, cfg.lam_G)
+                    _accumulate_grads(state, data, cfg.lam_G, cfg.lam_G2)
                     opt_G.step()
                     _project_G(state)
             _set_active(params_F, all_params)
@@ -418,7 +428,7 @@ def run_fit(state: FitState, data: DataSource, cfg: FitConfig):
             if delta < 0.05 or theta_updates >= cfg.theta_max_updates:
                 theta_active = False
 
-        loss = full_objective(state, data, cfg.lam, cfg.lam_G)
+        loss = full_objective(state, data, cfg.lam, cfg.lam_G, cfg.lam_G2)
         losses.append(loss)
         if cfg.verbose and (it % 10 == 0 or it == cfg.max_iter - 1):
             print(f"[glm_seminmf] iter {it:4d}  loss {loss:.6e}")
@@ -489,10 +499,10 @@ def run_transform(state: FitState, data: DataSource, cfg: FitConfig):
     for it in range(cfg.max_iter):
         for _ in range(cfg.inner_steps):
             opt_G.zero_grad(set_to_none=True)
-            _accumulate_grads(state, data, cfg.lam_G)
+            _accumulate_grads(state, data, cfg.lam_G, cfg.lam_G2)
             opt_G.step()
             _project_G(state)
-        loss = full_objective(state, data, 0.0, cfg.lam_G)
+        loss = full_objective(state, data, 0.0, cfg.lam_G, cfg.lam_G2)
         losses.append(loss)
         if prev is not None:
             rel = abs(prev - loss) / (abs(prev) + 1e-12)

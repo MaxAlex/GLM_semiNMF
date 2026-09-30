@@ -7,7 +7,7 @@ Model (features x samples counts X):
 with signed ``F`` (p x k), non-negative ``G`` (n x k), per-feature intercepts
 ``a``, per-sample log-exposure ``b``, optional covariate term, and per-feature
 NB2 dispersion ``theta``. Fitted by block-alternating minimization of
-``NLL + l1_F * ||F||_1 + l1_G * sum(G)`` (see the implementation spec for the
+``NLL + l1_F * ||F||_1 + l1_G * sum(G) + 0.5 * l2_G * sum(G**2)`` (see the implementation spec for the
 identifiability rationale behind the constraints, and the ``l1_G`` parameter
 docs for why the small usage penalty exists).
 """
@@ -74,6 +74,10 @@ class NBGLMSemiNMF:
         (the stable default). ``"fit"``: estimate ``b`` jointly — can absorb
         structure that belongs in ``G``. An array is used as fixed per-sample
         log-exposure offsets.
+    l2_G : float, default 0.0
+        Squared L2 usage penalty, ``0.5 * l2_G * sum(G**2)``. Set ``l1_G=0``
+        explicitly for ridge-only usages. Applied in discovery and transform;
+        column normalization and baseline canonicalization remain enabled.
     dispersion : {"trend", "feature", "shared"} or float, default "trend"
         NB dispersion handling; ``"trend"`` shrinks per-feature moment
         estimates toward a mean-dispersion trend. A float fixes theta.
@@ -135,10 +139,14 @@ class NBGLMSemiNMF:
         learning_rate: float = 0.05,
         inner_steps: int = 5,
         dtype: str = "float32",
+        l2_G: float = 0.0,
     ):
         self.n_components = n_components
         self.l1_F = l1_F
         self.l1_G = l1_G
+        self.l2_G = float(l2_G)
+        if not np.isfinite(self.l2_G) or self.l2_G < 0:
+            raise ValueError("l2_G must be finite and nonnegative")
         self.exposure = exposure
         self.dispersion = dispersion
         self.init = init
@@ -173,6 +181,7 @@ class NBGLMSemiNMF:
         return FitConfig(
             lam=self.l1_F,
             lam_G=self._resolved_l1_G(p),
+            lam_G2=self.l2_G,
             max_iter=self.max_iter,
             tol=self.tol,
             algorithm=self.algorithm,
